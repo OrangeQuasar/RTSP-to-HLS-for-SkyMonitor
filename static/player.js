@@ -15,6 +15,39 @@ function initializePlayer(video) {
     const hls = new Hls({
       lowLatencyMode: true,
       backBufferLength: 30,
+      // キャッシュ問題防止：m3u8の再取得を強制
+      manifestLoadPolicy: {
+        default: {
+          maxTimeToFirstByteMs: 5000,
+          maxLoadTimeMs: 30000,
+          timeoutRetry: {
+            maxNumRetry: 2,
+            retryDelayMs: 500,
+            maxRetryDelayMs: 4000,
+          },
+          errorRetry: {
+            maxNumRetry: 2,
+            retryDelayMs: 500,
+            maxRetryDelayMs: 4000,
+          },
+        },
+      },
+      playlistLoadPolicy: {
+        default: {
+          maxTimeToFirstByteMs: 5000,
+          maxLoadTimeMs: 30000,
+          timeoutRetry: {
+            maxNumRetry: 2,
+            retryDelayMs: 500,
+            maxRetryDelayMs: 4000,
+          },
+          errorRetry: {
+            maxNumRetry: 2,
+            retryDelayMs: 500,
+            maxRetryDelayMs: 4000,
+          },
+        },
+      },
     });
     hls.loadSource(src);
     hls.attachMedia(video);

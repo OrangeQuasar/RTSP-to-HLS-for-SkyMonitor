@@ -143,6 +143,15 @@ HLS のセグメントが数秒で止まる場合に備え、FFmpeg は以下の
 - RTSP 側のキーフレームが遅い場合に発生します
 - HLS の GOP/リスト設定を見直してください
 
+### 映像が更新されない（プレイリストが304エラー）
+
+- Nginx キャッシュ設定の問題です
+- 以下を確認してください：
+  - Nginx の ETag を無効化（`etag off;`）
+  - m3u8 ファイルで `no-cache, no-store, must-revalidate` を設定
+  - Last-Modified ヘッダーを無効化（`add_header Last-Modified "";`）
+- ブラウザキャッシュをクリアして再度アクセス
+
 ### Docker で起動できない
 
 - Docker Desktop が起動しているか確認
