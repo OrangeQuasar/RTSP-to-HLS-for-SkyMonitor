@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin - SkyMonitor</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">SkyMonitor</div>
+    <nav class="nav">
+      <a href="/">Live</a>
+      <a href="/logout">Logout</a>
+    </nav>
+  </header>
+
+  <main class="admin">
+    <h1>Admin Settings</h1>
+    <form method="post" class="admin-form">
+      <section class="panel">
+        <h2>Cameras</h2>
+        <div class="camera-grid">
+          {% for cam in config.cameras %}
+          <div class="camera-card">
+            <h3>{{ cam.id | upper }}</h3>
+            <label>Name</label>
+            <input type="text" name="name_{{ loop.index }}" value="{{ cam.name }}">
+            <label>RTSP URL</label>
+            <input type="text" name="rtsp_{{ loop.index }}" value="{{ cam.rtsp_url }}">
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <div class="actions">
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </main>
+</body>
+</html>

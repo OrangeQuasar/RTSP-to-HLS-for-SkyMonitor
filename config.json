@@ -1,0 +1,43 @@
+{
+  "admin_password": "admin",
+  "layout": "2x2",
+  "hls_root": "hls",
+  "cameras": [
+    {
+      "id": "cam1",
+      "name": "Camera 1",
+      "rtsp_url": "rtsp://user:pass@host/stream1",
+      "enabled": true,
+      "width": 1280,
+      "height": 720,
+      "fps": 15
+    },
+    {
+      "id": "cam2",
+      "name": "Camera 2",
+      "rtsp_url": "rtsp://user:pass@host/stream2",
+      "enabled": true,
+      "width": 1280,
+      "height": 720,
+      "fps": 15
+    },
+    {
+      "id": "cam3",
+      "name": "Camera 3",
+      "rtsp_url": "rtsp://user:pass@host/stream3",
+      "enabled": true,
+      "width": 1280,
+      "height": 720,
+      "fps": 15
+    },
+    {
+      "id": "cam4",
+      "name": "Camera 4",
+      "rtsp_url": "rtsp://user:pass@host/stream4",
+      "enabled": true,
+      "width": 1280,
+      "height": 720,
+      "fps": 15
+    }
+  ]
+}

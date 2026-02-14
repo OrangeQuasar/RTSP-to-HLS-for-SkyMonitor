@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkyMonitor</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">SkyMonitor</div>
+    <button class="record-btn" id="recordStartBtn">📹 録画開始</button>
+    <button class="record-btn record-btn--stop" id="recordStopBtn" style="display:none;">⏹️ 録画停止</button>
+  </header>
+
+  <p class="info-text">
+    ※ 映像が正しく表示されない場合は、RELOADボタンを押してください。
+  </p>
+
+  <main class="grid layout-{{ layout }}">
+    {% for cam in cameras %}
+    <section class="tile">
+      <div class="tile-header">
+        <span class="tile-title">{{ cam.name }}</span>
+        <button class="camera-reload-btn" data-camera-id="{{ cam.id }}">RELOAD</button>
+      </div>
+      <video class="player" data-camera-id="{{ cam.id }}" data-src="/hls/{{ cam.id }}/index.m3u8" muted autoplay playsinline></video>
+    </section>
+    {% endfor %}
+  </main>
+
+  <script src="/static/player.js"></script>
+</body>
+</html>

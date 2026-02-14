@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+.hls/
+.hls/**
+*.log
+.git/
+.vscode/
