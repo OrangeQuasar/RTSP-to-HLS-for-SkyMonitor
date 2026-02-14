@@ -165,13 +165,19 @@ async def start_recording(request: Request) -> Dict[str, Any]:
             for cam in cameras
             if cam.get("enabled") and cam.get("rtsp_url")
         ]
+        # カメラID→カメラ名のマッピングを作成
+        cam_name_map = {
+            cam.get("id"): cam.get("name", cam.get("id"))
+            for cam in cameras
+            if cam.get("enabled") and cam.get("rtsp_url")
+        }
 
         if not enabled_ids:
             return {"status": "error", "message": "No cameras available"}
 
         # 10分（600秒）の録画を実行
         recorder: VideoRecorder = app.state.recorder
-        output_paths = await recorder.record_cameras(enabled_ids, duration_seconds=600)
+        output_paths = await recorder.record_cameras(enabled_ids, duration_seconds=600, cam_name_map=cam_name_map)
 
         # クライアント用にファイル名をマッピング
         files = {cam_id: path.name for cam_id, path in output_paths.items()}
@@ -196,13 +202,19 @@ async def record_start(request: Request) -> Dict[str, Any]:
             for cam in cameras
             if cam.get("enabled") and cam.get("rtsp_url")
         ]
+        # カメラID→カメラ名のマッピングを作成
+        cam_name_map = {
+            cam.get("id"): cam.get("name", cam.get("id"))
+            for cam in cameras
+            if cam.get("enabled") and cam.get("rtsp_url")
+        }
 
         if not enabled_ids:
             return {"status": "error", "message": "No cameras available"}
 
         # 無期限で録画開始
         recorder: VideoRecorder = app.state.recorder
-        session_id = recorder.start_recording(enabled_ids)
+        session_id = recorder.start_recording(enabled_ids, cam_name_map=cam_name_map)
 
         return {"status": "success", "session_id": session_id}
 

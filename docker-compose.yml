@@ -3,12 +3,10 @@ services:
     image: nginx:1.27-alpine
     ports:
       - "80:80"
-      # - "443:443"  # SSL/TLS用（本番環境では有効化）
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./static:/app/static:ro
       - ./hls:/app/hls:ro
-      # - ./ssl:/etc/nginx/ssl:ro  # SSL証明書用（本番環境）
     depends_on:
       - skymonitor
     restart: unless-stopped
@@ -17,10 +15,6 @@ services:
 
   skymonitor:
     build: .
-    # ホストマシンから直接アクセスする場合は以下をコメント解除
-    # ports:
-    #   - "8000:8000"
-    # 内部ネットワークのみで公開（外部からはNginx経由でアクセス）
     expose:
       - "8000"
     volumes:
@@ -32,11 +26,6 @@ services:
     restart: unless-stopped
     networks:
       - app-network
-
-  localtunnel:
-    image: node:20-alpine
-    network_mode: host
-    command: sh -c "npm install -g localtunnel && lt --port 80"
 
 networks:
   app-network:

@@ -18,16 +18,19 @@ class VideoRecorder:
         # セッション管理：{session_id: {cam_id: (proc, output_path)}}
         self.sessions: Dict[str, Dict[str, tuple[subprocess.Popen, Path]]] = {}
 
-    def start_recording(self, camera_ids: List[str]) -> str:
+    def start_recording(self, camera_ids: List[str], cam_name_map: Dict[str, str] | None = None) -> str:
         """
         複数カメラから無期限で映像を録画開始
 
         Args:
             camera_ids: 録画対象のカメラID（例：["cam1", "cam2"]）
+            cam_name_map: カメラID→カメラ名のマッピング（例：{"cam1": "Camera 1"}）
 
         Returns:
             session_id: セッションID（停止時に使用）
         """
+        if cam_name_map is None:
+            cam_name_map = {}
         session_id = str(uuid.uuid4())[:8]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.sessions[session_id] = {}
@@ -39,7 +42,9 @@ class VideoRecorder:
                     print(f"HLS manifest not found for {cam_id}")
                     continue
 
-                output_path = self.output_dir / f"record_{cam_id}_{timestamp}_{session_id}.mp4"
+                # カメラ名があればそれを使用、なければカメラIDを使用
+                display_name = cam_name_map.get(cam_id, cam_id)
+                output_path = self.output_dir / f"record_{display_name}_{timestamp}_{session_id}.mp4"
 
                 cmd = [
                     "ffmpeg",
@@ -104,6 +109,7 @@ class VideoRecorder:
         self,
         camera_ids: List[str],
         duration_seconds: int = 600,
+        cam_name_map: Dict[str, str] | None = None,
     ) -> Dict[str, Path]:
         """
         複数カメラから指定時間の映像を録画（レガシー用）
@@ -111,17 +117,22 @@ class VideoRecorder:
         Args:
             camera_ids: 録画対象のカメラID（例：["cam1", "cam2"]）
             duration_seconds: 録画時間（秒、デフォルト10分）
+            cam_name_map: カメラID→カメラ名のマッピング（例：{"cam1": "Camera 1"}）
 
         Returns:
             {cam_id: output_path} の辞書
         """
+        if cam_name_map is None:
+            cam_name_map = {}
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_paths: Dict[str, Path] = {}
 
         tasks = []
         for cam_id in camera_ids:
+            # カメラ名があればそれを使用、なければカメラIDを使用
+            display_name = cam_name_map.get(cam_id, cam_id)
             task = self._record_single_camera(
-                cam_id, f"record_{cam_id}_{timestamp}.mp4", duration_seconds
+                cam_id, f"record_{display_name}_{timestamp}.mp4", duration_seconds
             )
             tasks.append(task)
 

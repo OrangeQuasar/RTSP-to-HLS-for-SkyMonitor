@@ -13,20 +13,43 @@ RTSP カメラを HLS に変換し、4 画面ダッシュボードで表示す�
 ## 必要要件（ローカル）
 
 - Python 3.10+
-- FFmpeg（PATH に通っていること）
+- FFmpeg
 - uv（https://github.com/astral-sh/uv）
+
+### FFmpeg のインストール
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install ffmpeg
+```
+
+**macOS:**
+```bash
+brew install ffmpeg
+```
+
+**Windows:**
+https://ffmpeg.org/download.html からダウンロードして PATH に追加
 
 ## ローカル開発（uv）
 
-```
+```bash
+# 仮想環境の作成
 uv venv
-\.venv\Scripts\Activate.ps1
+
+# 仮想環境の有効化
+# Linux/macOS:
+source .venv/bin/activate
+# Windows PowerShell:
+.\.venv\Scripts\Activate.ps1
+
+# 依存パッケージのインストール
 uv sync
 ```
 
 起動:
 
-```
+```bash
 uvicorn app.main:app --reload
 ```
 
@@ -37,54 +60,24 @@ uvicorn app.main:app --reload
 
 ## Docker Compose で起動
 
-```
+```bash
 docker compose up --build
 ```
 
+構成:
+
+- **FastAPI アプリ**: ポート 8000 （Docker 内部）
+- **Nginx**: ポート 80 （ホストマシン）
+  - / → FastAPI にプロキシ
+  - /static/ → 直配信（CSS/JS）
+  - /hls/ → 直配信（HLS セグメント）
+
 アクセス:
 
-- http://localhost:8000/ （アプリ直アクセス）
-- http://localhost/ （Nginx 経由）
-
-## Localtunnel での公開
-
-ローカルネットワークの外部に公開したい場合は **localtunnel** を使用できます。
-
-### インストール（ホストマシン）
-
-```
-npm install -g localtunnel
-```
-
-### 公開方法
-
-**方法1: Nginx 経由での公開（推奨）**
-
-```bash
-# ホストマシンでコマンドを実行
-lt --port 80
-```
-
-出力例:
-
-```
-your url is: https://your-subdomain.loca.lt
-```
-
-その URL にアクセスするとアプリが利用できます。
-
-**方法2: FastAPI 直接公開**
-
-```bash
-# ホストマシンでコマンドを実行
-lt --port 8000
-```
-
-### セキュリティ上の注意
-
-- Localtunnel URL は不特定多数にアクセス可能です
-- 管理画面へのパスワード保護を必ず有効化してください
-- 本番環境では HTTPS（TLS）の設定を必ず行ってください
+- http://localhost/ （推奨 - Nginx 経由）
+- http://localhost:8000/ （直接アクセス）
+  
+admin_password は config.json で変更できます。
 
 ## Nginx 直配信について
 
@@ -118,9 +111,10 @@ Nginx は以下を直配信しています。
 			"name": "Camera 1",
 			"rtsp_url": "rtsp://user:pass@host/stream1",
 			"enabled": true,
-			"width": 1280,
-			"height": 720,
-			"fps": 15
+		**URL**: http://localhost/admin
+- **初回パスワード**: `admin`（config.json の `admin_password` で変更）
+- カメラ名と RTSP を変更して保存すると、FFmpeg を再起動して反映します
+- 最大 4 台のカメラに対応（2x2 レイアウト）
 		}
 	]
 }
@@ -169,6 +163,6 @@ uv lock
 
 ## セキュリティの注意
 
-- 管理画面のパスワードは必ず変更
-- 公開時は Nginx で TLS を有効化することを推奨
-- 設定ファイルに含まれる RTSP 認証情報の取り扱いに注意
+- **管理画面のパスワード**: 必ず `config.json` の `admin_password` を変更してください
+- **公開時の TLS**: Nginx で HTTPS/TLS を有効化してください
+- **RTSP 認証情報**: `config.json` に含まれるため、安全に管理してください
