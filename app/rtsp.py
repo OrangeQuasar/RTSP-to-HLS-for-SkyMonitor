@@ -5,6 +5,8 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any
 
+from loguru import logger
+
 
 class RtspManager:
     def __init__(self, hls_root: Path) -> None:
@@ -14,22 +16,28 @@ class RtspManager:
     def apply_config(self, config: Dict[str, Any]) -> None:
         self.stop_all()
         self.hls_root = self._resolve_hls_root(config)
+        logger.info(f"HLS root: {self.hls_root}")
         for camera in config.get("cameras", []):
             if camera.get("enabled"):
                 self.start_camera(camera)
 
     def start_camera(self, camera: Dict[str, Any]) -> None:
         cam_id = camera.get("id")
+        cam_name = camera.get("name", cam_id)
         if not cam_id or cam_id in self.processes:
+            logger.warning(f"Camera {cam_name} ({cam_id}) already running or invalid ID")
             return
         rtsp_url = (camera.get("rtsp_url") or "").strip()
         if not rtsp_url:
+            logger.warning(f"Camera {cam_name} ({cam_id}): No RTSP URL configured")
             return
+        
         output_dir = self.hls_root / cam_id
         if output_dir.exists():
             shutil.rmtree(output_dir, ignore_errors=True)
         output_dir.mkdir(parents=True, exist_ok=True)
         playlist_path = output_dir / "index.m3u8"
+        
         width = int(camera.get("width") or 1280)
         height = int(camera.get("height") or 720)
         fps = int(camera.get("fps") or 15)
@@ -69,20 +77,38 @@ class RtspManager:
             str(playlist_path),
         ]
 
-        self.processes[cam_id] = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=self._creationflags(),
-        )
+        logger.info(f"Starting camera {cam_name} ({cam_id}) -> {playlist_path}")
+        logger.debug(f"FFmpeg command: {' '.join(cmd)}")
+        
+        # FFmpeg のエラー出力をキャプチャ
+        log_file = output_dir / "ffmpeg.log"
+        try:
+            with open(log_file, "w") as log_f:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=log_f,
+                    stderr=subprocess.STDOUT,
+                    creationflags=self._creationflags(),
+                )
+                self.processes[cam_id] = proc
+                logger.info(f"Camera {cam_name} ({cam_id}) FFmpeg process started (PID: {proc.pid})")
+        except Exception as e:
+            logger.error(f"Failed to start FFmpeg for {cam_name} ({cam_id}): {e}")
 
     def stop_all(self) -> None:
         for cam_id, proc in list(self.processes.items()):
             try:
+                logger.info(f"Stopping camera {cam_id} (PID: {proc.pid})")
                 proc.terminate()
-            except Exception:
-                pass
-            self.processes.pop(cam_id, None)
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Camera {cam_id} did not terminate, killing...")
+                    proc.kill()
+            except Exception as e:
+                logger.error(f"Error stopping camera {cam_id}: {e}")
+            finally:
+                self.processes.pop(cam_id, None)
 
     def _resolve_hls_root(self, config: Dict[str, Any]) -> Path:
         hls_root = Path(config.get("hls_root") or "hls")

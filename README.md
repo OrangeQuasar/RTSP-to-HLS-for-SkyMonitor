@@ -138,6 +138,26 @@ HLS のセグメントが数秒で止まる場合に備え、FFmpeg は以下の
 
 ## よくあるトラブル
 
+### ログの確認方法
+
+**Docker ログの確認：**
+```bash
+# アプリケーションログ
+docker compose logs -f skymonitor
+
+# Nginx ログ
+docker compose logs -f nginx
+```
+
+**ファイルログの確認：**
+```bash
+# FFmpeg エラーログ（カメラごと）
+cat hls/cam1/ffmpeg.log
+
+# アプリケーションロ（loguru）
+cat logs/skymonitor.log
+```
+
 ### 映像が数秒で止まる
 
 - RTSP 側のキーフレームが遅い場合に発生します

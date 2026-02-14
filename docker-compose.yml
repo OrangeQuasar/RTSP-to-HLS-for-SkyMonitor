@@ -20,6 +20,7 @@ services:
     volumes:
       - ./config.json:/app/config.json
       - ./hls:/app/hls
+      - ./logs:/app/logs
     environment:
       - TZ=Asia/Tokyo
       - PYTHONUNBUFFERED=1
