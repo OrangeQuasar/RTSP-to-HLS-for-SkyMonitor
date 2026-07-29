@@ -1,0 +1,9 @@
+[server]
+headless = true
+address = "0.0.0.0"
+port = 8501
+# ./static 以下を /app/static/ で配信する(HLS セグメントの配信に使用)
+enableStaticServing = true
+
+[browser]
+gatherUsageStats = false

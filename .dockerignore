@@ -1,8 +1,7 @@
-__pycache__/
+.git
+.venv
+.env
+static/hls
+__pycache__
 *.pyc
-.venv/
-.hls/
-.hls/**
-*.log
-.git/
-.vscode/
+README.md

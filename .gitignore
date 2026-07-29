@@ -1,32 +1,5 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Virtual environments
 .venv/
-venv/
-ENV/
-
-# Packaging/build
-build/
-dist/
-*.egg-info/
-
-# Test/coverage
-.coverage
-htmlcov/
-.pytest_cache/
-
-# Logs
-*.log
-logs/
-
-# OS/IDE
-.DS_Store
-Thumbs.db
-.vscode/
-
-# App artifacts
-hls/
-records/
+__pycache__/
+*.pyc
+.env
+static/hls/

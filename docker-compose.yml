@@ -1,33 +1,12 @@
 services:
-  nginx:
-    image: nginx:1.27-alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./static:/app/static:ro
-      - ./hls:/app/hls:ro
-    depends_on:
-      - skymonitor
-    restart: unless-stopped
-    networks:
-      - app-network
-
   skymonitor:
     build: .
-    expose:
-      - "8000"
-    volumes:
-      - ./config.json:/app/config.json
-      - ./hls:/app/hls
-      - ./logs:/app/logs
+    container_name: skymonitor
+    ports:
+      - "8501:8501"
     environment:
-      - TZ=Asia/Tokyo
-      - PYTHONUNBUFFERED=1
+      # .env ファイルで設定する(README 参照)
+      RTSP_URL: ${RTSP_URL:?RTSP_URL を .env に設定してください}
+      RTSP_TRANSPORT: ${RTSP_TRANSPORT:-tcp}
+      VIDEO_CODEC: ${VIDEO_CODEC:-copy}
     restart: unless-stopped
-    networks:
-      - app-network
-
-networks:
-  app-network:
-    driver: bridge
