@@ -1,18 +1,17 @@
-FROM python:3.11-slim
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-RUN apt-get update \
-  ; apt-get install -y --no-install-recommends ffmpeg curl \
-  ; rm -rf /var/lib/apt/lists/*
-
-RUN pip install --no-cache-dir uv
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 WORKDIR /app
 
-COPY . /app/
-RUN uv sync --frozen
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1
 
-EXPOSE 8000
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 依存だけ先に解決してレイヤーキャッシュを効かせる
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --no-dev
+
+COPY main.py ./
+
+EXPOSE 8501
+
+CMD ["uv", "run", "--frozen", "streamlit", "run", "main.py", \
+     "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]

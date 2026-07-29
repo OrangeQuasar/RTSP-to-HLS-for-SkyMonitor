@@ -1,8 +1,9 @@
-__pycache__/
-*.pyc
-.venv/
-.hls/
-.hls/**
-*.log
-.git/
-.vscode/
+.git
+.venv
+__pycache__
+.env
+.env.example
+README.md
+nginx
+streamer
+docker-compose.yml

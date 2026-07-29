@@ -1,168 +1,57 @@
-# SkyMonitor
+# RTSP to HLS for SkyMonitor
 
-RTSP カメラを HLS に変換し、4 画面ダッシュボードで表示する FastAPI アプリです。
-管理画面からカメラ名と RTSP URL を設定できます。
+同一ネットワーク内のカメラから RTSP で映像を受信し、HLS に変換して
+Streamlit の Web ページでリアルタイム視聴できるようにするツールです。
 
-## できること
+## 構成
 
-- 4 台の RTSP 映像を 2x2 で同時表示
-- 管理画面でカメラ名/RTSP を変更して即反映
-- HLS 配信によりブラウザで再生可能
-- Docker + Nginx 構成に対応
-
-## 必要要件（ローカル）
-
-- Python 3.10+
-- FFmpeg
-- uv（https://github.com/astral-sh/uv）
-
-### FFmpeg のインストール
-
-**Ubuntu/Debian:**
-```bash
-sudo apt-get install ffmpeg
+```
+カメラ --RTSP--> streamer (ffmpeg) --HLS--> 共有ボリューム
+                                              ├─ hls-server (nginx) :8888  ← ブラウザが m3u8/ts を取得
+                                              └─ app (Streamlit)    :8501  ← hls.js プレイヤーを表示
 ```
 
-**macOS:**
-```bash
-brew install ffmpeg
-```
+- **streamer**: ffmpeg が RTSP を受信し HLS セグメントに変換（既定は無変換コピーで低負荷）
+- **hls-server**: nginx が HLS ファイルを CORS 付きで配信
+- **app**: Streamlit + hls.js によるライブプレイヤー（uv で依存管理）
 
-**Windows:**
-https://ffmpeg.org/download.html からダウンロードして PATH に追加
+## 使い方
 
-## ローカル開発（uv）
+1. `.env` にカメラの RTSP URL を設定する
 
-```bash
-# 仮想環境の作成
-uv venv
+   ```bash
+   cp .env.example .env
+   # RTSP_URL を自分のカメラに書き換える
+   ```
 
-# 仮想環境の有効化
-# Linux/macOS:
-source .venv/bin/activate
-# Windows PowerShell:
-.\.venv\Scripts\Activate.ps1
+2. 起動する
 
-# 依存パッケージのインストール
-uv sync
-```
+   ```bash
+   docker compose up -d --build
+   ```
 
-起動:
+3. ブラウザで `http://<このマシンのIP>:8501` を開く
 
-```bash
-uvicorn app.main:app --reload
-```
+## 設定 (.env)
 
-アクセス:
+| 変数 | 既定値 | 説明 |
+|---|---|---|
+| `RTSP_URL` | (必須) | カメラの RTSP URL。例: `rtsp://user:pass@192.168.1.100:554/stream1` |
+| `VIDEO_CODEC` | `copy` | `copy` = 無変換（H.264 カメラ向け）。カメラが H.265 の場合は `h264` にして再エンコード |
+| `HLS_PORT` | `8888` | HLS 配信ポート。視聴するブラウザからアクセスできる必要あり |
 
-- http://127.0.0.1:8000/ （ビューア）
-- http://127.0.0.1:8000/admin （管理画面）
+## 注意
 
-## Docker Compose で起動
+- HLS の特性上、実映像から数秒程度の遅延があります。
+- 映像が出ない場合は `docker compose logs streamer` で ffmpeg のエラーを確認してください。
+  カメラのコーデックが H.265 の場合は `VIDEO_CODEC=h264` を試してください。
+- 音声は配信しません（`-an`）。
+
+## ローカル開発（Docker なし）
 
 ```bash
-docker compose up --build
+uv run streamlit run main.py
 ```
 
-構成:
-
-- **FastAPI アプリ**: ポート 8000 （Docker 内部）
-- **Nginx**: ポート 80 （ホストマシン）
-  - / → FastAPI にプロキシ
-  - /static/ → 直配信（CSS/JS）
-  - /hls/ → 直配信（HLS セグメント）
-
-アクセス:
-
-- http://localhost/ （推奨 - Nginx 経由）
-- http://localhost:8000/ （直接アクセス）
-  
-admin_password は config.json で変更できます。
-
-## Nginx 直配信について
-
-Nginx は以下を直配信しています。
-
-- /static/ （CSS/JS）
-- /hls/ （HLS の m3u8/ts）
-
-メリット:
-
-- ファイル配信の高速化
-- アプリ負荷の低減
-- キャッシュ制御の自由度向上
-
-設定は [nginx/nginx.conf](nginx/nginx.conf) を参照してください。
-
-## 設定ファイル
-
-設定は [config.json](config.json) に保存されます。
-
-例:
-
-```
-{
-	"admin_password": "admin",
-	"layout": "2x2",
-	"hls_root": "hls",
-	"cameras": [
-		{
-			"id": "cam1",
-			"name": "Camera 1",
-			"rtsp_url": "rtsp://user:pass@host/stream1",
-			"enabled": true,
-		**URL**: http://localhost/admin
-- **初回パスワード**: `admin`（config.json の `admin_password` で変更）
-- カメラ名と RTSP を変更して保存すると、FFmpeg を再起動して反映します
-- 最大 4 台のカメラに対応（2x2 レイアウト）
-		}
-	]
-}
-```
-
-## 管理画面
-
-- URL: /admin
-- 初回パスワードは config.json の admin_password
-- カメラ名と RTSP を変更して保存すると、FFmpeg を再起動して反映します
-
-## HLS の安定再生のための設定
-
-HLS のセグメントが数秒で止まる場合に備え、FFmpeg は以下の設定で起動しています。
-
-- GOP を 2 秒で固定
-- 独立セグメント化
-- プレイリスト長を 6 に拡大
-
-設定は [app/rtsp.py](app/rtsp.py) にあります。
-
-## よくあるトラブル
-
-### 映像が数秒で止まる
-
-- RTSP 側のキーフレームが遅い場合に発生します
-- HLS の GOP/リスト設定を見直してください
-
-### Docker で起動できない
-
-- Docker Desktop が起動しているか確認
-- 依存解決に失敗する場合はビルドログを確認
-
-### Nginx 経由で再生できない
-
-- /hls/ が Nginx にマウントされているか確認
-- Nginx のエラーログを確認
-
-## 依存更新
-
-pyproject.toml を変更した場合:
-
-```
-uv lock
-```
-
-## セキュリティの注意
-
-- **管理画面のパスワード**: 必ず `config.json` の `admin_password` を変更してください
-- **公開時の TLS**: Nginx で HTTPS/TLS を有効化してください
-- **RTSP 認証情報**: `config.json` に含まれるため、安全に管理してください
+※ HLS ストリームは Docker 側のサービスが生成するため、プレイヤーの動作確認には
+`docker compose up streamer hls-server` を併用してください。

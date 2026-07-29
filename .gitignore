@@ -1,31 +1,7 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Virtual environments
+# uv / Python
 .venv/
-venv/
-ENV/
+__pycache__/
+*.pyc
 
-# Packaging/build
-build/
-dist/
-*.egg-info/
-
-# Test/coverage
-.coverage
-htmlcov/
-.pytest_cache/
-
-# Logs
-*.log
-
-# OS/IDE
-.DS_Store
-Thumbs.db
-.vscode/
-
-# App artifacts
-hls/
-records/
+# 認証情報を含むため
+.env

@@ -1,19 +1,9 @@
 [project]
-name = "skymonitor"
+name = "rtsp-to-hls-for-skymonitor"
 version = "0.1.0"
-description = "RTSP to HLS dashboard with admin settings"
-requires-python = ">=3.10"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
 dependencies = [
-  "fastapi==0.115.6",
-  "uvicorn==0.30.6",
-  "jinja2==3.1.4",
-  "python-multipart==0.0.9",
-  "itsdangerous==2.2.0"
+    "streamlit>=1.60.0",
 ]
-
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools]
-packages = ["app"]
