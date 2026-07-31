@@ -37,7 +37,11 @@ player_html = f"""
 <video id="video" muted autoplay playsinline controls
        style="width: 100%; max-height: 75vh; background: #000;"></video>
 <script>
-  const src = window.location.protocol + "//" + window.location.hostname
+  // components.html は srcdoc 付き iframe に描画されるため、
+  // window.location は about:srcdoc を指してしまう。
+  // 親ページ (Streamlit 本体) の URL から組み立てる。
+  const parentLoc = window.parent.location;
+  const src = parentLoc.protocol + "//" + parentLoc.hostname
             + ":{HLS_PORT}/hls/stream.m3u8";
   const video = document.getElementById("video");
   if (Hls.isSupported()) {{
