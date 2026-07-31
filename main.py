@@ -44,20 +44,36 @@ player_html = f"""
   const src = parentLoc.protocol + "//" + parentLoc.hostname
             + ":{HLS_PORT}/hls/stream.m3u8";
   const video = document.getElementById("video");
-  if (Hls.isSupported()) {{
+
+  function createPlayer() {{
     const hls = new Hls({{
-      liveSyncDurationCount: 2,
+      liveSyncDurationCount: 3,
       maxLiveSyncPlaybackRate: 1.5,
-      lowLatencyMode: true,
     }});
     hls.loadSource(src);
     hls.attachMedia(video);
     hls.on(Hls.Events.ERROR, (event, data) => {{
-      if (data.fatal) {{
-        // 配信が一時的に途切れても自動で再接続する
-        setTimeout(() => {{ hls.loadSource(src); hls.startLoad(); }}, 3000);
+      if (!data.fatal) return;
+      // hls.js 推奨のエラー種別ごとの復旧処理
+      // https://github.com/video-dev/hls.js/blob/master/docs/API.md#fatal-error-recovery
+      switch (data.type) {{
+        case Hls.ErrorTypes.NETWORK_ERROR:
+          setTimeout(() => hls.startLoad(), 1000);
+          break;
+        case Hls.ErrorTypes.MEDIA_ERROR:
+          hls.recoverMediaError();
+          break;
+        default:
+          // 復旧不能なエラーはプレイヤーごと作り直す
+          hls.destroy();
+          setTimeout(createPlayer, 3000);
+          break;
       }}
     }});
+  }}
+
+  if (Hls.isSupported()) {{
+    createPlayer();
   }} else if (video.canPlayType("application/vnd.apple.mpegurl")) {{
     // Safari はネイティブ HLS 再生
     video.src = src;

@@ -26,7 +26,7 @@ while true; do
         -an \
         -f hls \
         -hls_time 1 \
-        -hls_list_size 6 \
+        -hls_list_size 15 \
         -hls_flags delete_segments+independent_segments \
         /hls/stream.m3u8
 
