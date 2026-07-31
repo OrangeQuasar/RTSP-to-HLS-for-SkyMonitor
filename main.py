@@ -34,7 +34,7 @@ else:
 # ホスト名はページの URL から動的に組み立てる
 player_html = f"""
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
-<video id="video" muted autoplay playsinline controls
+<video id="video" muted autoplay playsinline
        style="width: 100%; max-height: 75vh; background: #000;"></video>
 <script>
   // components.html は srcdoc 付き iframe に描画されるため、
