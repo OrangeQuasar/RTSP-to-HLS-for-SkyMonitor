@@ -39,35 +39,51 @@ services:
     volumes:
       - hls:/hls
 
-  hls-server:
+  # 火球・流星の自動検出（テスト導入: カメラ2のみ）
+  # https://github.com/kin-hasegawa/meteor-detect
+  detector2:
+    build: ./detector
+    restart: unless-stopped
+    command:
+      - -u
+      - ${RTSP_URL_2:?RTSP_URL_2 を .env に設定してください}
+      - -n
+      - -o
+      - /recordings/cam2
+    volumes:
+      - recordings:/recordings
+    depends_on:
+      - streamer2
+
+  web:
     image: nginx:1.27-alpine
     restart: unless-stopped
     ports:
-      - "${HLS_PORT:-8888}:8080"
+      - "8000:8080"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web:/usr/share/nginx/html:ro
       - hls:/hls:ro
+      - recordings:/recordings:ro
     depends_on:
       - streamer1
       - streamer2
       - streamer3
       - streamer4
+      - api
 
-  app:
+  api:
     build: .
     restart: unless-stopped
-    ports:
-      - "8501:8501"
     environment:
-      HLS_PORT: ${HLS_PORT:-8888}
       CAMERA_1_LABEL: ${CAMERA_1_LABEL:-カメラ1}
       CAMERA_2_LABEL: ${CAMERA_2_LABEL:-カメラ2}
       CAMERA_3_LABEL: ${CAMERA_3_LABEL:-カメラ3}
       CAMERA_4_LABEL: ${CAMERA_4_LABEL:-カメラ4}
     volumes:
       - hls:/hls:ro
-    depends_on:
-      - hls-server
+      - recordings:/recordings:ro
 
 volumes:
   hls:
+  recordings:

@@ -1,19 +1,26 @@
 # RTSP to HLS for SkyMonitor
 
 同一ネットワーク内の最大4台のカメラから RTSP で映像を受信し、HLS に変換して
-Streamlit の Web ページで 2x2 グリッドでリアルタイム視聴できるようにするツールです。
+Web ページで 2x2 グリッドでリアルタイム視聴できるようにするツールです。
 
 ## 構成
 
 ```
 カメラ1〜4 --RTSP--> streamer1〜4 (ffmpeg) --HLS--> 共有ボリューム (/hls/cam1〜4/)
-                                                        ├─ hls-server (nginx) :8888  ← ブラウザが m3u8/ts を取得
-                                                        └─ app (Streamlit)    :8501  ← hls.js プレイヤー(2x2)を表示
+                                                        │
+ブラウザ <--:8000-- web (nginx) ── /          : 静的 HTML (web/index.html, hls.js プレイヤー 2x2)
+                                ── /hls/      : HLS セグメント配信
+                                ── /api/ ──> api (FastAPI) : カメラのライブ状態を返す
 ```
 
 - **streamer1〜4**: それぞれ ffmpeg が担当カメラの RTSP を受信し HLS セグメントに変換（既定は無変換コピーで低負荷）
-- **hls-server**: nginx が全カメラの HLS ファイルを CORS 付きで配信
-- **app**: Streamlit + hls.js による 2x2 ライブプレイヤー（uv で依存管理）
+- **web**: nginx がビューアーページ・HLS・API を同一オリジンの1ポートで配信
+- **api**: FastAPI が `/api/status` でカメラごとのライブ状態とラベルを返す（uv で依存管理）。
+  ページはこれを 10 秒ごとにポーリングしてステータス表示を自動更新する
+- **detector2**（テスト導入）: [meteor-detect](https://github.com/kin-hasegawa/meteor-detect) がカメラ2の RTSP を直接監視し、
+  流星・火球らしき動きを検出したら合成画像・クリップ動画・1時間ごとの空全体画像を `/recordings/cam2` に書き出す
+- **検出ギャラリー**（`/gallery.html`）: `api` が `/api/recordings` で検出イベント一覧（新しい順、最大300件）を返し、
+  ページはサムネイル画像をクリックするとクリップ動画を再生する
 
 ## 使い方
 
@@ -30,7 +37,7 @@ Streamlit の Web ページで 2x2 グリッドでリアルタイム視聴でき
    docker compose up -d --build
    ```
 
-3. ブラウザで `http://<このマシンのIP>:8501` を開く
+3. ブラウザで `http://<このマシンのIP>:8000` を開く
 
 ## 設定 (.env)
 
@@ -39,7 +46,8 @@ Streamlit の Web ページで 2x2 グリッドでリアルタイム視聴でき
 | `RTSP_URL_1`〜`RTSP_URL_4` | (必須) | 各カメラの RTSP URL。例: `rtsp://user:pass@192.168.1.101:554/stream1` |
 | `VIDEO_CODEC_1`〜`VIDEO_CODEC_4` | `copy` | `copy` = 無変換（H.264 カメラ向け）。カメラが H.265 の場合は `h264` にして再エンコード |
 | `CAMERA_1_LABEL`〜`CAMERA_4_LABEL` | `カメラ1`〜`カメラ4` | 画面に表示するカメラ名 |
-| `HLS_PORT` | `8888` | HLS 配信ポート。視聴するブラウザからアクセスできる必要あり |
+
+公開ポートは `8000` 固定（`docker-compose.yml` の `ports` で指定）。変更したい場合は `docker-compose.yml` を直接編集してください。
 
 ## 注意
 
@@ -48,12 +56,19 @@ Streamlit の Web ページで 2x2 グリッドでリアルタイム視聴でき
   カメラのコーデックが H.265 の場合は該当カメラの `VIDEO_CODEC_N=h264` を試してください。
 - 音声は配信しません（`-an`）。
 - カメラが4台未満の場合も、使わない `RTSP_URL_N` にダミーの URL を設定しておく必要があります（該当パネルはオフライン表示のままになります）。
+- `detector2` の検出結果は `docker compose exec detector2 ls /recordings/cam2` や、Docker のボリューム
+  （`recordings`）を直接参照して確認してください。まだ閲覧用ページには繋がっていません。
+- meteor-detect は ATOM Cam を主な対象に作られたツールのため、日没〜日の出のスケジューリング（既定で午前6時に終了）など
+  一部の挙動が想定と異なる場合があります。誤検出（飛行機・虫など）が多い場合は `--mask` でカメラ視野の不要領域を除外できます。
 
 ## ローカル開発（Docker なし）
 
+API 単体はローカルでも起動できます。
+
 ```bash
-uv run streamlit run main.py
+uv run uvicorn main:app --reload
+# http://localhost:8000/api/status
 ```
 
-※ HLS ストリームは Docker 側のサービスが生成するため、プレイヤーの動作確認には
-`docker compose up streamer hls-server` を併用してください。
+※ ページ（`web/index.html`）は同一オリジンの `/hls/` と `/api/` を前提にしているため、
+プレイヤーを含めた動作確認は `docker compose up -d --build` で行ってください。

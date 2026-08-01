@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkyMonitor Live</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #0e1117;
+      color: #fafafa;
+      font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    }
+    body { display: flex; flex-direction: column; }
+
+    header { padding: 12px 16px 8px; }
+    h1 { margin: 0; font-size: 20px; font-weight: 600; }
+    .caption { margin: 4px 0 0; font-size: 13px; color: #9aa0a6; }
+    .nav-link {
+      display: inline-block;
+      margin-top: 8px;
+      color: #7dd3fc;
+      font-size: 13px;
+      text-decoration: none;
+    }
+    .nav-link:hover { text-decoration: underline; }
+
+    #status {
+      margin: 8px 16px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    #status.ok { background: rgba(46, 204, 113, 0.15); color: #2ecc71; }
+    #status.ng { background: rgba(241, 196, 15, 0.15); color: #f1c40f; }
+
+    main {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 8px;
+      padding: 0 8px;
+    }
+    /* 左列は右寄せ・右列は左寄せにして、中央の間隔を grid の gap だけにする */
+    .cell { display: flex; align-items: center; min-width: 0; min-height: 0; }
+    .cell:nth-child(odd) { justify-content: flex-end; }
+    .cell:nth-child(even) { justify-content: flex-start; }
+
+    .panel {
+      position: relative;
+      background: #000;
+      overflow: hidden;
+      height: 100%;
+      max-width: 100%;
+      aspect-ratio: 16 / 9;
+    }
+    .panel video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+    .badge {
+      position: absolute;
+      top: 6px;
+      left: 8px;
+      padding: 2px 8px;
+      background: rgba(0, 0, 0, 0.5);
+      color: #fff;
+      font-size: 13px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #888;
+    }
+    .dot.live { background: #2ecc71; }
+
+    footer {
+      padding: 6px 16px 10px;
+      font-size: 12px;
+      color: #9aa0a6;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📡 山形大学小白川キャンパス 屋上スカイモニター映像</h1>
+    <p class="caption">TWOSの一部メンバーが、火球を捉えられればいいなと思って運用しています。</p>
+    <a class="nav-link" href="/gallery.html">☄️ 検出ギャラリーを見る →</a>
+  </header>
+
+  <div id="status" class="ng">状態を確認しています…</div>
+
+  <main id="grid"></main>
+
+  <footer>若干の遅延が発生する場合があります。</footer>
+
+  <script>
+    const STATUS_INTERVAL_MS = 10000;
+
+    function createPanel(camId) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      cell.innerHTML = `
+        <div class="panel" id="panel-${camId}">
+          <video id="video-${camId}" muted autoplay playsinline></video>
+          <div class="badge">
+            <span class="dot" id="dot-${camId}"></span>
+            <span id="label-${camId}"></span>
+          </div>
+        </div>`;
+      document.getElementById("grid").appendChild(cell);
+    }
+
+    function startPlayer(camId) {
+      const video = document.getElementById(`video-${camId}`);
+      const panel = document.getElementById(`panel-${camId}`);
+      const src = `/hls/${camId}/stream.m3u8`;
+
+      // パネルを映像の実アスペクト比に合わせ、黒帯（レターボックス）をなくす
+      video.addEventListener("loadedmetadata", () => {
+        if (video.videoWidth && video.videoHeight) {
+          panel.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+        }
+      });
+
+      function createPlayer() {
+        const hls = new Hls({
+          liveSyncDurationCount: 3,
+          maxLiveSyncPlaybackRate: 1.5,
+        });
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          if (!data.fatal) return;
+          // hls.js 推奨のエラー種別ごとの復旧処理
+          // https://github.com/video-dev/hls.js/blob/master/docs/API.md#fatal-error-recovery
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              setTimeout(() => hls.startLoad(), 1000);
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              hls.recoverMediaError();
+              break;
+            default:
+              // 復旧不能なエラーはプレイヤーごと作り直す
+              hls.destroy();
+              setTimeout(createPlayer, 3000);
+              break;
+          }
+        });
+      }
+
+      if (Hls.isSupported()) {
+        createPlayer();
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        // Safari はネイティブ HLS 再生
+        video.src = src;
+      }
+    }
+
+    async function refreshStatus() {
+      const banner = document.getElementById("status");
+      try {
+        const res = await fetch("/api/status");
+        const { cameras } = await res.json();
+
+        for (const cam of cameras) {
+          document.getElementById(`label-${cam.id}`).textContent = cam.label;
+          document.getElementById(`dot-${cam.id}`).classList.toggle("live", cam.live);
+        }
+
+        const liveCount = cameras.filter((c) => c.live).length;
+        if (liveCount > 0) {
+          banner.className = "ok";
+          banner.textContent = `配信中 — ${liveCount}/${cameras.length} 台のカメラ映像を受信しています`;
+        } else {
+          banner.className = "ng";
+          banner.textContent = "映像が受信されていません。しばらく経ってからもういちどアクセスしてください。";
+        }
+      } catch {
+        banner.className = "ng";
+        banner.textContent = "状態を取得できませんでした。";
+      }
+    }
+
+    async function init() {
+      // パネルの構成（ID とラベル）はステータス API から取得する
+      const res = await fetch("/api/status");
+      const { cameras } = await res.json();
+      for (const cam of cameras) {
+        createPanel(cam.id);
+        startPlayer(cam.id);
+      }
+      await refreshStatus();
+      setInterval(refreshStatus, STATUS_INTERVAL_MS);
+    }
+
+    init();
+  </script>
+</body>
+</html>

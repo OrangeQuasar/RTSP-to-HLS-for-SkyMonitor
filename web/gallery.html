@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkyMonitor 検出ギャラリー</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☄️</text></svg>">
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: #0e1117;
+      color: #fafafa;
+      font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    }
+
+    header { padding: 12px 16px 8px; }
+    h1 { margin: 0; font-size: 20px; font-weight: 600; }
+    .caption { margin: 4px 0 0; font-size: 13px; color: #9aa0a6; }
+    .nav-link {
+      display: inline-block;
+      margin-top: 8px;
+      color: #7dd3fc;
+      font-size: 13px;
+      text-decoration: none;
+    }
+    .nav-link:hover { text-decoration: underline; }
+
+    #status {
+      margin: 8px 16px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    #status.info { background: rgba(125, 211, 252, 0.15); color: #7dd3fc; }
+    #status.ng { background: rgba(241, 196, 15, 0.15); color: #f1c40f; }
+
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 12px;
+      padding: 8px 16px 24px;
+    }
+
+    .card {
+      background: #171b22;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #262b33;
+    }
+    .card .media {
+      position: relative;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      cursor: pointer;
+    }
+    .card .media img,
+    .card .media video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .card .play-badge {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      background: rgba(0, 0, 0, 0.2);
+      pointer-events: none;
+    }
+    .card .meta {
+      padding: 8px 10px;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      color: #cbd5e1;
+    }
+    .card .meta .cam-label { font-weight: 600; color: #fafafa; }
+
+    #empty {
+      margin: 24px 16px;
+      color: #9aa0a6;
+      font-size: 14px;
+    }
+
+    footer {
+      padding: 6px 16px 16px;
+      font-size: 12px;
+      color: #9aa0a6;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>☄️ 検出ギャラリー</h1>
+    <p class="caption">meteor-detect が自動検出した流星・火球らしき映像の一覧です。</p>
+    <a class="nav-link" href="/">← ライブ映像に戻る</a>
+  </header>
+
+  <div id="status" class="info">読み込み中…</div>
+
+  <div id="grid"></div>
+  <p id="empty" hidden>まだ検出イベントがありません。</p>
+
+  <footer>誤検出（飛行機・虫など）が含まれる場合があります。</footer>
+
+  <script>
+    function formatTimestamp(ts) {
+      // yyyymmddhhmmss -> yyyy-mm-dd hh:mm:ss
+      return `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)} ` +
+             `${ts.slice(8, 10)}:${ts.slice(10, 12)}:${ts.slice(12, 14)}`;
+    }
+
+    function createCard(event, labelMap) {
+      const card = document.createElement("div");
+      card.className = "card";
+
+      const media = document.createElement("div");
+      media.className = "media";
+
+      if (event.image) {
+        const img = document.createElement("img");
+        img.src = `/recordings/${event.camera_id}/${event.image}`;
+        img.loading = "lazy";
+        img.alt = `${event.camera_id} ${formatTimestamp(event.timestamp)}`;
+        media.appendChild(img);
+
+        if (event.video) {
+          const badge = document.createElement("div");
+          badge.className = "play-badge";
+          badge.textContent = "▶";
+          media.appendChild(badge);
+          media.addEventListener("click", () => playVideo(media, event), { once: true });
+        }
+      } else if (event.video) {
+        media.addEventListener("click", () => playVideo(media, event), { once: true });
+        const badge = document.createElement("div");
+        badge.className = "play-badge";
+        badge.textContent = "▶";
+        media.appendChild(badge);
+      }
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.innerHTML = `
+        <span class="cam-label">${labelMap[event.camera_id] || event.camera_id}</span>
+        <span>${formatTimestamp(event.timestamp)}</span>`;
+
+      card.appendChild(media);
+      card.appendChild(meta);
+      return card;
+    }
+
+    function playVideo(media, event) {
+      media.innerHTML = "";
+      const video = document.createElement("video");
+      video.src = `/recordings/${event.camera_id}/${event.video}`;
+      video.controls = true;
+      video.autoplay = true;
+      media.appendChild(video);
+    }
+
+    async function init() {
+      const banner = document.getElementById("status");
+      const grid = document.getElementById("grid");
+      const empty = document.getElementById("empty");
+
+      try {
+        const [statusRes, recRes] = await Promise.all([
+          fetch("/api/status"),
+          fetch("/api/recordings"),
+        ]);
+        const { cameras } = await statusRes.json();
+        const { events, total } = await recRes.json();
+
+        const labelMap = Object.fromEntries(cameras.map((c) => [c.id, c.label]));
+
+        if (events.length === 0) {
+          banner.hidden = true;
+          empty.hidden = false;
+          return;
+        }
+
+        for (const event of events) {
+          grid.appendChild(createCard(event, labelMap));
+        }
+
+        banner.className = "info";
+        banner.textContent = total > events.length
+          ? `${events.length}件を表示中（全${total}件中、新しい順）`
+          : `${total}件の検出イベント`;
+      } catch {
+        banner.className = "ng";
+        banner.textContent = "検出イベントを取得できませんでした。";
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
