@@ -7,20 +7,22 @@ Web ページで 2x2 グリッドでリアルタイム視聴できるように�
 
 ```
 カメラ1〜4 --RTSP--> streamer1〜4 (ffmpeg) --HLS--> 共有ボリューム (/hls/cam1〜4/)
+              └-----> detector1〜4 (meteor-detect) --検出時--> 共有ボリューム (/recordings/cam1〜4/)
                                                         │
 ブラウザ <--:8000-- web (nginx) ── /          : 静的 HTML (web/index.html, hls.js プレイヤー 2x2)
-                                ── /hls/      : HLS セグメント配信
-                                ── /api/ ──> api (FastAPI) : カメラのライブ状態を返す
+                                ── /gallery.html : 検出ギャラリー（web/gallery.html）
+                                ── /hls/       : HLS セグメント配信
+                                ── /recordings/ : 検出画像・クリップ動画の配信
+                                ── /api/ ──> api (FastAPI) : ライブ状態・検出イベント一覧を返す
 ```
 
 - **streamer1〜4**: それぞれ ffmpeg が担当カメラの RTSP を受信し HLS セグメントに変換（既定は無変換コピーで低負荷）
-- **web**: nginx がビューアーページ・HLS・API を同一オリジンの1ポートで配信
-- **api**: FastAPI が `/api/status` でカメラごとのライブ状態とラベルを返す（uv で依存管理）。
-  ページはこれを 10 秒ごとにポーリングしてステータス表示を自動更新する
-- **detector2**（テスト導入）: [meteor-detect](https://github.com/kin-hasegawa/meteor-detect) がカメラ2の RTSP を直接監視し、
-  流星・火球らしき動きを検出したら合成画像・クリップ動画・1時間ごとの空全体画像を `/recordings/cam2` に書き出す
-- **検出ギャラリー**（`/gallery.html`）: `api` が `/api/recordings` で検出イベント一覧（新しい順、最大300件）を返し、
-  ページはサムネイル画像をクリックするとクリップ動画を再生する
+- **detector1〜4**: [meteor-detect](https://github.com/kin-hasegawa/meteor-detect) が各カメラの RTSP を直接監視し、
+  流星・火球らしき動きを検出したら合成画像・クリップ動画・1時間ごとの空全体画像を `/recordings/camN` に書き出す
+- **web**: nginx がビューアーページ・ギャラリーページ・HLS・検出画像/動画・API を同一オリジンの1ポートで配信
+- **api**: FastAPI が `/api/status`（カメラごとのライブ状態とラベル）と `/api/recordings`（検出イベント一覧、新しい順・最大300件）を返す（uv で依存管理）。
+  ライブページはステータスを 10 秒ごとにポーリングして自動更新する
+- **検出ギャラリー**（`/gallery.html`）: `/api/recordings` の一覧をサムネイル表示し、クリックするとクリップ動画を再生する
 
 ## 使い方
 
@@ -56,10 +58,12 @@ Web ページで 2x2 グリッドでリアルタイム視聴できるように�
   カメラのコーデックが H.265 の場合は該当カメラの `VIDEO_CODEC_N=h264` を試してください。
 - 音声は配信しません（`-an`）。
 - カメラが4台未満の場合も、使わない `RTSP_URL_N` にダミーの URL を設定しておく必要があります（該当パネルはオフライン表示のままになります）。
-- `detector2` の検出結果は `docker compose exec detector2 ls /recordings/cam2` や、Docker のボリューム
-  （`recordings`）を直接参照して確認してください。まだ閲覧用ページには繋がっていません。
+- 検出結果は `/gallery.html` から確認できます。個別に見たい場合は `docker compose exec detector1 ls /recordings/cam1`
+  のように各コンテナ内を直接参照することもできます。
 - meteor-detect は ATOM Cam を主な対象に作られたツールのため、日没〜日の出のスケジューリング（既定で午前6時に終了）など
   一部の挙動が想定と異なる場合があります。誤検出（飛行機・虫など）が多い場合は `--mask` でカメラ視野の不要領域を除外できます。
+- 4台同時稼働は CPU 負荷が高くなります。負荷が問題になる場合は `docker-compose.yml` から不要な `detectorN` を削除、
+  または `RECORDINGS_ROOT` 配下の対象カメラを絞ってください。
 
 ## ローカル開発（Docker なし）
 

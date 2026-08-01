@@ -39,8 +39,22 @@ services:
     volumes:
       - hls:/hls
 
-  # 火球・流星の自動検出（テスト導入: カメラ2のみ）
+  # 火球・流星の自動検出
   # https://github.com/kin-hasegawa/meteor-detect
+  detector1:
+    build: ./detector
+    restart: unless-stopped
+    command:
+      - -u
+      - ${RTSP_URL_1:?RTSP_URL_1 を .env に設定してください}
+      - -n
+      - -o
+      - /recordings/cam1
+    volumes:
+      - recordings:/recordings
+    depends_on:
+      - streamer1
+
   detector2:
     build: ./detector
     restart: unless-stopped
@@ -54,6 +68,34 @@ services:
       - recordings:/recordings
     depends_on:
       - streamer2
+
+  detector3:
+    build: ./detector
+    restart: unless-stopped
+    command:
+      - -u
+      - ${RTSP_URL_3:?RTSP_URL_3 を .env に設定してください}
+      - -n
+      - -o
+      - /recordings/cam3
+    volumes:
+      - recordings:/recordings
+    depends_on:
+      - streamer3
+
+  detector4:
+    build: ./detector
+    restart: unless-stopped
+    command:
+      - -u
+      - ${RTSP_URL_4:?RTSP_URL_4 を .env に設定してください}
+      - -n
+      - -o
+      - /recordings/cam4
+    volumes:
+      - recordings:/recordings
+    depends_on:
+      - streamer4
 
   web:
     image: nginx:1.27-alpine
@@ -70,6 +112,10 @@ services:
       - streamer2
       - streamer3
       - streamer4
+      - detector1
+      - detector2
+      - detector3
+      - detector4
       - api
 
   api:
