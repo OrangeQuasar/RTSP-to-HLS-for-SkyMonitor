@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SkyMonitor 検出ギャラリー</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☄️</text></svg>">
+  <title>SkyMonitor 録画一覧</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
   <style>
     * { box-sizing: border-box; }
     html, body {
@@ -96,17 +96,17 @@
 </head>
 <body>
   <header>
-    <h1>検出ギャラリー</h1>
-    <p class="caption">meteor-detect で自動検出した流星・火球らしき映像の一覧です。</p>
+    <h1>録画一覧</h1>
+    <p class="caption">各カメラの常時録画クリップの一覧です（新しい順）。</p>
     <a class="nav-link" href="/">← ライブ映像に戻る</a>
   </header>
 
   <div id="status" class="info">読み込み中…</div>
 
   <div id="grid"></div>
-  <p id="empty" hidden>まだ検出イベントがありません。</p>
+  <p id="empty" hidden>まだ録画がありません。</p>
 
-  <footer>誤検出（飛行機・虫など）が含まれる場合があります。</footer>
+  <footer>一定期間を過ぎた録画は自動的に削除されます。</footer>
 
   <script>
     function formatTimestamp(ts) {
@@ -115,50 +115,34 @@
              `${ts.slice(8, 10)}:${ts.slice(10, 12)}:${ts.slice(12, 14)}`;
     }
 
-    function createCard(event, labelMap) {
+    function createCard(recording, labelMap) {
       const card = document.createElement("div");
       card.className = "card";
 
       const media = document.createElement("div");
       media.className = "media";
+      media.addEventListener("click", () => playVideo(media, recording), { once: true });
 
-      if (event.image) {
-        const img = document.createElement("img");
-        img.src = `/recordings/${event.camera_id}/${event.image}`;
-        img.loading = "lazy";
-        img.alt = `${event.camera_id} ${formatTimestamp(event.timestamp)}`;
-        media.appendChild(img);
-
-        if (event.video) {
-          const badge = document.createElement("div");
-          badge.className = "play-badge";
-          badge.textContent = "▶";
-          media.appendChild(badge);
-          media.addEventListener("click", () => playVideo(media, event), { once: true });
-        }
-      } else if (event.video) {
-        media.addEventListener("click", () => playVideo(media, event), { once: true });
-        const badge = document.createElement("div");
-        badge.className = "play-badge";
-        badge.textContent = "▶";
-        media.appendChild(badge);
-      }
+      const badge = document.createElement("div");
+      badge.className = "play-badge";
+      badge.textContent = "▶";
+      media.appendChild(badge);
 
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.innerHTML = `
-        <span class="cam-label">${labelMap[event.camera_id] || event.camera_id}</span>
-        <span>${formatTimestamp(event.timestamp)}</span>`;
+        <span class="cam-label">${labelMap[recording.camera_id] || recording.camera_id}</span>
+        <span>${formatTimestamp(recording.timestamp)}</span>`;
 
       card.appendChild(media);
       card.appendChild(meta);
       return card;
     }
 
-    function playVideo(media, event) {
+    function playVideo(media, recording) {
       media.innerHTML = "";
       const video = document.createElement("video");
-      video.src = `/recordings/${event.camera_id}/${event.video}`;
+      video.src = `/recordings/${recording.camera_id}/${recording.video}`;
       video.controls = true;
       video.autoplay = true;
       media.appendChild(video);
@@ -175,27 +159,27 @@
           fetch("/api/recordings"),
         ]);
         const { cameras } = await statusRes.json();
-        const { events, total } = await recRes.json();
+        const { events: recordings, total } = await recRes.json();
 
         const labelMap = Object.fromEntries(cameras.map((c) => [c.id, c.label]));
 
-        if (events.length === 0) {
+        if (recordings.length === 0) {
           banner.hidden = true;
           empty.hidden = false;
           return;
         }
 
-        for (const event of events) {
-          grid.appendChild(createCard(event, labelMap));
+        for (const recording of recordings) {
+          grid.appendChild(createCard(recording, labelMap));
         }
 
         banner.className = "info";
-        banner.textContent = total > events.length
-          ? `${events.length}件を表示中（全${total}件中、新しい順）`
-          : `${total}件の検出イベント`;
+        banner.textContent = total > recordings.length
+          ? `${recordings.length}件を表示中（全${total}件中、新しい順）`
+          : `${total}件の録画`;
       } catch {
         banner.className = "ng";
-        banner.textContent = "検出イベントを取得できませんでした。";
+        banner.textContent = "録画一覧を取得できませんでした。";
       }
     }
 

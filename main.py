@@ -9,15 +9,13 @@ HLS_ROOT = Path(os.environ.get("HLS_ROOT", "/hls"))
 RECORDINGS_ROOT = Path(os.environ.get("RECORDINGS_ROOT", "/recordings"))
 # プレイリストの更新が止まってからこの秒数を超えたらオフライン扱い
 STALE_SECONDS = 30
-# ギャラリーに返す検出イベントの上限（新しい順）
+# 一覧に返す録画ファイルの上限（新しい順）
 RECORDINGS_LIMIT = 300
 
 CAMERA_IDS = ["cam1", "cam2", "cam3", "cam4"]
 
-# meteor-detect (atomcam.py) の出力ファイル名
-# 合成検出画像: yyyymmddhhmmss.jpg / クリップ動画: movie-yyyymmddhhmmss.mp4
-IMAGE_RE = re.compile(r"^(\d{14})\.jpg$")
-MOVIE_RE = re.compile(r"^movie-(\d{14})\.mp4$")
+# streamer が書き出す常時録画ファイル名（streamer/stream.sh の -strftime 出力に対応）
+RECORDING_RE = re.compile(r"^(\d{8})_(\d{6})\.mp4$")
 
 app = FastAPI(title="SkyMonitor API")
 
@@ -35,24 +33,19 @@ def list_recordings(camera_id: str) -> list[dict]:
     if not cam_dir.is_dir():
         return []
 
-    images: dict[str, str] = {}
-    videos: dict[str, str] = {}
+    events = []
     for entry in cam_dir.iterdir():
-        if m := IMAGE_RE.match(entry.name):
-            images[m.group(1)] = entry.name
-        elif m := MOVIE_RE.match(entry.name):
-            videos[m.group(1)] = entry.name
+        if m := RECORDING_RE.match(entry.name):
+            events.append(
+                {
+                    "camera_id": camera_id,
+                    "timestamp": m.group(1) + m.group(2),
+                    "video": entry.name,
+                }
+            )
 
-    timestamps = sorted(images.keys() | videos.keys(), reverse=True)
-    return [
-        {
-            "camera_id": camera_id,
-            "timestamp": ts,
-            "image": images.get(ts),
-            "video": videos.get(ts),
-        }
-        for ts in timestamps
-    ]
+    events.sort(key=lambda e: e["timestamp"], reverse=True)
+    return events
 
 
 @app.get("/api/status")

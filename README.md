@@ -6,23 +6,25 @@ Web ページで 2x2 グリッドでリアルタイム視聴できるように�
 ## 構成
 
 ```
-カメラ1〜4 --RTSP--> streamer1〜4 (ffmpeg) --HLS--> 共有ボリューム (/hls/cam1〜4/)
-              └-----> detector1〜4 (meteor-detect) --検出時--> 共有ボリューム (/recordings/cam1〜4/)
+カメラ1〜4 --RTSP--> streamer1〜4 (ffmpeg) ──HLS────> 共有ボリューム (/hls/cam1〜4/)
+                                          └─常時録画─> 共有ボリューム (/recordings/cam1〜4/)
+                                                              │
+cleanup (定期削除) ──── 保持期間を過ぎた録画を削除 ───────────┘
                                                         │
 ブラウザ <--:8000-- web (nginx) ── /          : 静的 HTML (web/index.html, hls.js プレイヤー 2x2)
-                                ── /gallery.html : 検出ギャラリー（web/gallery.html）
+                                ── /gallery.html : 録画一覧（web/gallery.html）
                                 ── /hls/       : HLS セグメント配信
-                                ── /recordings/ : 検出画像・クリップ動画の配信
-                                ── /api/ ──> api (FastAPI) : ライブ状態・検出イベント一覧を返す
+                                ── /recordings/ : 録画クリップの配信
+                                ── /api/ ──> api (FastAPI) : ライブ状態・録画一覧を返す
 ```
 
-- **streamer1〜4**: それぞれ ffmpeg が担当カメラの RTSP を受信し HLS セグメントに変換（既定は無変換コピーで低負荷）
-- **detector1〜4**: [meteor-detect](https://github.com/kin-hasegawa/meteor-detect) が各カメラの RTSP を直接監視し、
-  流星・火球らしき動きを検出したら合成画像・クリップ動画・1時間ごとの空全体画像を `/recordings/camN` に書き出す
-- **web**: nginx がビューアーページ・ギャラリーページ・HLS・検出画像/動画・API を同一オリジンの1ポートで配信
-- **api**: FastAPI が `/api/status`（カメラごとのライブ状態とラベル）と `/api/recordings`（検出イベント一覧、新しい順・最大300件）を返す（uv で依存管理）。
+- **streamer1〜4**: それぞれ ffmpeg が担当カメラの RTSP を1本受信し、HLS 配信用セグメントと
+  常時録画用のクリップ（既定10分単位の mp4、`/recordings/camN` に保存）を同時に書き出す（既定は無変換コピーで低負荷）
+- **cleanup**: `RECORDING_RETENTION_DAYS`（既定3日）を過ぎた録画ファイルを1時間おきに走査して削除する
+- **web**: nginx がビューアーページ・録画一覧ページ・HLS・録画クリップ・API を同一オリジンの1ポートで配信
+- **api**: FastAPI が `/api/status`（カメラごとのライブ状態とラベル）と `/api/recordings`（録画一覧、新しい順・最大300件）を返す（uv で依存管理）。
   ライブページはステータスを 10 秒ごとにポーリングして自動更新する
-- **検出ギャラリー**（`/gallery.html`）: `/api/recordings` の一覧をサムネイル表示し、クリックするとクリップ動画を再生する
+- **録画一覧**（`/gallery.html`）: `/api/recordings` の一覧をカード表示し、クリックするとクリップ動画を再生する
 
 ## 使い方
 
@@ -48,6 +50,7 @@ Web ページで 2x2 グリッドでリアルタイム視聴できるように�
 | `RTSP_URL_1`〜`RTSP_URL_4` | (必須) | 各カメラの RTSP URL。例: `rtsp://user:pass@192.168.1.101:554/stream1` |
 | `VIDEO_CODEC_1`〜`VIDEO_CODEC_4` | `copy` | `copy` = 無変換（H.264 カメラ向け）。カメラが H.265 の場合は `h264` にして再エンコード |
 | `CAMERA_1_LABEL`〜`CAMERA_4_LABEL` | `カメラ1`〜`カメラ4` | 画面に表示するカメラ名 |
+| `RECORDING_RETENTION_DAYS` | `3` | 常時録画の保持期間（日）。これを超えた録画ファイルは `cleanup` サービスが自動削除する |
 
 公開ポートは `8000` 固定（`docker-compose.yml` の `ports` で指定）。変更したい場合は `docker-compose.yml` を直接編集してください。
 
@@ -58,12 +61,12 @@ Web ページで 2x2 グリッドでリアルタイム視聴できるように�
   カメラのコーデックが H.265 の場合は該当カメラの `VIDEO_CODEC_N=h264` を試してください。
 - 音声は配信しません（`-an`）。
 - カメラが4台未満の場合も、使わない `RTSP_URL_N` にダミーの URL を設定しておく必要があります（該当パネルはオフライン表示のままになります）。
-- 検出結果は `/gallery.html` から確認できます。個別に見たい場合は `docker compose exec detector1 ls /recordings/cam1`
+- 録画は `/gallery.html` から確認できます。個別に見たい場合は `docker compose exec streamer1 ls /recordings/cam1`
   のように各コンテナ内を直接参照することもできます。
-- meteor-detect は ATOM Cam を主な対象に作られたツールのため、日没〜日の出のスケジューリング（既定で午前6時に終了）など
-  一部の挙動が想定と異なる場合があります。誤検出（飛行機・虫など）が多い場合は `--mask` でカメラ視野の不要領域を除外できます。
-- 4台同時稼働は CPU 負荷が高くなります。負荷が問題になる場合は `docker-compose.yml` から不要な `detectorN` を削除、
-  または `RECORDINGS_ROOT` 配下の対象カメラを絞ってください。
+- 録画ファイルは既定10分単位で分割されます（`streamer/stream.sh` の `RECORDING_SEGMENT_SECONDS`）。変更したい場合は
+  `docker-compose.yml` の `streamerN` に環境変数として追加してください。
+- `RECORDING_RETENTION_DAYS` を超えた録画は `cleanup` サービスが1時間おきに削除します（`cleanup/cleanup.sh` の
+  `CLEANUP_INTERVAL_SECONDS` で間隔を変更可能）。
 
 ## ローカル開発（Docker なし）
 

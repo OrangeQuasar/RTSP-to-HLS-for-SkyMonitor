@@ -3,14 +3,18 @@ set -u
 
 : "${RTSP_URL:?RTSP_URL is required (set it in .env)}"
 
-# 複数カメラを同じ /hls ボリュームに同居させるためのサブディレクトリ名
+# 複数カメラを同じ /hls, /recordings ボリュームに同居させるためのサブディレクトリ名
 CAMERA_NAME="${CAMERA_NAME:-cam}"
 HLS_DIR="/hls/${CAMERA_NAME}"
-mkdir -p "$HLS_DIR"
+REC_DIR="/recordings/${CAMERA_NAME}"
+mkdir -p "$HLS_DIR" "$REC_DIR"
 
 # copy: 無変換で低負荷・低遅延（カメラが H.264 の場合はこれで OK）
 # h264: カメラが H.265 などブラウザで再生できないコーデックの場合に再エンコード
 VIDEO_CODEC="${VIDEO_CODEC:-copy}"
+
+# 常時録画のファイル分割間隔（秒）。この単位でファイルが切り替わる
+RECORDING_SEGMENT_SECONDS="${RECORDING_SEGMENT_SECONDS:-600}"
 
 if [ "$VIDEO_CODEC" = "copy" ]; then
     VOPTS="-c:v copy"
@@ -19,10 +23,11 @@ else
 fi
 
 while true; do
-    # 前回のセグメントが残っているとプレイリストが壊れるので消す
+    # 前回のセグメントが残っているとプレイリストが壊れるので消す（録画ファイルは消さない）
     rm -f "$HLS_DIR"/stream.m3u8 "$HLS_DIR"/*.ts
 
     echo "[streamer:${CAMERA_NAME}] starting ffmpeg (codec=${VIDEO_CODEC})"
+    # 同じ RTSP 入力から HLS 配信用と常時録画用の2つの出力を同時に書き出す
     # shellcheck disable=SC2086
     ffmpeg -hide_banner -loglevel warning \
         -rtsp_transport tcp \
@@ -33,7 +38,15 @@ while true; do
         -hls_time 1 \
         -hls_list_size 15 \
         -hls_flags delete_segments+independent_segments \
-        "$HLS_DIR/stream.m3u8"
+        "$HLS_DIR/stream.m3u8" \
+        $VOPTS \
+        -an \
+        -f segment \
+        -strftime 1 \
+        -segment_time "$RECORDING_SEGMENT_SECONDS" \
+        -segment_format mp4 \
+        -reset_timestamps 1 \
+        "$REC_DIR/%Y%m%d_%H%M%S.mp4"
 
     echo "[streamer:${CAMERA_NAME}] ffmpeg exited. retrying in 5s..."
     sleep 5
