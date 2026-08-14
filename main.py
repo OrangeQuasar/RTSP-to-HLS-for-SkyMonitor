@@ -16,10 +16,9 @@ RECORDINGS_ROOT = Path(os.environ.get("RECORDINGS_ROOT", "/recordings"))
 STALE_SECONDS = 30
 # 一覧に返す録画ファイルの上限（新しい順）
 RECORDINGS_LIMIT = 300
-# 「今すぐ保存」でダウンロードさせるクリップの長さ（秒）
-SAVE_CLIP_SECONDS = 30
-# ライブ配信側が保持しているセグメントの上限（streamer/stream.sh の hls_list_size と対応）
-SAVE_CLIP_MAX_SECONDS = 55
+# 「今すぐ保存」でダウンロードさせるクリップの長さ（秒）。streamer/stream.sh の
+# SAVE_CLIP_SECONDS と揃える（.env の SAVE_CLIP_SECONDS で両方に反映される）
+SAVE_CLIP_SECONDS = float(os.environ.get("SAVE_CLIP_SECONDS", "30"))
 
 CAMERA_IDS = ["cam1", "cam2", "cam3", "cam4"]
 
@@ -112,7 +111,7 @@ def recent_hls_segments(camera_id: str, seconds: float) -> list[str]:
 def save_clip(camera_id: str, seconds: float = SAVE_CLIP_SECONDS) -> FileResponse:
     if camera_id not in CAMERA_IDS:
         raise HTTPException(status_code=404, detail="unknown camera_id")
-    seconds = max(5.0, min(seconds, SAVE_CLIP_MAX_SECONDS))
+    seconds = max(5.0, min(seconds, SAVE_CLIP_SECONDS))
 
     segment_names = recent_hls_segments(camera_id, seconds)
     if not segment_names:

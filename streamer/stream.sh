@@ -16,6 +16,11 @@ VIDEO_CODEC="${VIDEO_CODEC:-copy}"
 # 常時録画のファイル分割間隔（秒）。この単位でファイルが切り替わる
 RECORDING_SEGMENT_SECONDS="${RECORDING_SEGMENT_SECONDS:-600}"
 
+# 「今すぐ保存」でダウンロードできるクリップの長さ（秒）。api の SAVE_CLIP_SECONDS と揃える
+SAVE_CLIP_SECONDS="${SAVE_CLIP_SECONDS:-30}"
+# ライブ配信側でその秒数分を切り出せるよう、余裕を持たせてHLSセグメントを保持しておく
+HLS_LIST_SIZE=$((SAVE_CLIP_SECONDS + 30))
+
 if [ "$VIDEO_CODEC" = "copy" ]; then
     VOPTS="-c:v copy"
 else
@@ -36,7 +41,7 @@ while true; do
         -an \
         -f hls \
         -hls_time 1 \
-        -hls_list_size 60 \
+        -hls_list_size "$HLS_LIST_SIZE" \
         -hls_flags delete_segments+independent_segments \
         "$HLS_DIR/stream.m3u8" \
         $VOPTS \

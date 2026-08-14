@@ -51,6 +51,8 @@ cleanup (定期削除) ──── 保持期間を過ぎた録画を削除 ─�
 | `VIDEO_CODEC_1`〜`VIDEO_CODEC_4` | `copy` | `copy` = 無変換（H.264 カメラ向け）。カメラが H.265 の場合は `h264` にして再エンコード |
 | `CAMERA_1_LABEL`〜`CAMERA_4_LABEL` | `カメラ1`〜`カメラ4` | 画面に表示するカメラ名 |
 | `RECORDING_RETENTION_DAYS` | `3` | 常時録画の保持期間（日）。これを超えた録画ファイルは `cleanup` サービスが自動削除する |
+| `RECORDING_SEGMENT_SECONDS` | `600` | 常時録画のファイル分割間隔（秒）。この単位でアーカイブの1本の映像が区切られる |
+| `SAVE_CLIP_SECONDS` | `30` | ライブ画面の「今すぐ保存」でダウンロードできるクリップの長さ（秒） |
 
 公開ポートは `8000` 固定（`docker-compose.yml` の `ports` で指定）。変更したい場合は `docker-compose.yml` を直接編集してください。
 
@@ -63,10 +65,9 @@ cleanup (定期削除) ──── 保持期間を過ぎた録画を削除 ─�
 - カメラが4台未満の場合も、使わない `RTSP_URL_N` にダミーの URL を設定しておく必要があります（該当パネルはオフライン表示のままになります）。
 - 録画は `/gallery.html` から確認できます。個別に見たい場合は `docker compose exec streamer1 ls /recordings/cam1`
   のように各コンテナ内を直接参照することもできます。
-- ライブ画面（`/`）の各カメラパネルにある「💾 保存」ボタンを押すと、直近約30秒分のクリップをその場で
-  ブラウザにダウンロードできます。サーバー側の `/recordings` には保存されないため、ギャラリーには表示されません。
-- 録画ファイルは既定10分単位で分割されます（`streamer/stream.sh` の `RECORDING_SEGMENT_SECONDS`）。変更したい場合は
-  `docker-compose.yml` の `streamerN` に環境変数として追加してください。
+- ライブ画面（`/`）の各カメラパネルにある「今すぐ保存」ボタンを押すと、直近のクリップ（既定30秒、`SAVE_CLIP_SECONDS`
+  で変更可能）をその場でブラウザにダウンロードできます。サーバー側の `/recordings` には保存されないため、
+  アーカイブには表示されません。
 - `RECORDING_RETENTION_DAYS` を超えた録画は `cleanup` サービスが1時間おきに削除します（`cleanup/cleanup.sh` の
   `CLEANUP_INTERVAL_SECONDS` で間隔を変更可能）。
 

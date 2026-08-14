@@ -6,6 +6,8 @@ services:
       RTSP_URL: ${RTSP_URL_1:?RTSP_URL_1 を .env に設定してください}
       VIDEO_CODEC: ${VIDEO_CODEC_1:-copy}
       CAMERA_NAME: cam1
+      RECORDING_SEGMENT_SECONDS: ${RECORDING_SEGMENT_SECONDS:-600}
+      SAVE_CLIP_SECONDS: ${SAVE_CLIP_SECONDS:-30}
     volumes:
       - hls:/hls
       - recordings:/recordings
@@ -17,6 +19,8 @@ services:
       RTSP_URL: ${RTSP_URL_2:?RTSP_URL_2 を .env に設定してください}
       VIDEO_CODEC: ${VIDEO_CODEC_2:-copy}
       CAMERA_NAME: cam2
+      RECORDING_SEGMENT_SECONDS: ${RECORDING_SEGMENT_SECONDS:-600}
+      SAVE_CLIP_SECONDS: ${SAVE_CLIP_SECONDS:-30}
     volumes:
       - hls:/hls
       - recordings:/recordings
@@ -28,6 +32,8 @@ services:
       RTSP_URL: ${RTSP_URL_3:?RTSP_URL_3 を .env に設定してください}
       VIDEO_CODEC: ${VIDEO_CODEC_3:-copy}
       CAMERA_NAME: cam3
+      RECORDING_SEGMENT_SECONDS: ${RECORDING_SEGMENT_SECONDS:-600}
+      SAVE_CLIP_SECONDS: ${SAVE_CLIP_SECONDS:-30}
     volumes:
       - hls:/hls
       - recordings:/recordings
@@ -39,6 +45,8 @@ services:
       RTSP_URL: ${RTSP_URL_4:?RTSP_URL_4 を .env に設定してください}
       VIDEO_CODEC: ${VIDEO_CODEC_4:-copy}
       CAMERA_NAME: cam4
+      RECORDING_SEGMENT_SECONDS: ${RECORDING_SEGMENT_SECONDS:-600}
+      SAVE_CLIP_SECONDS: ${SAVE_CLIP_SECONDS:-30}
     volumes:
       - hls:/hls
       - recordings:/recordings
@@ -77,6 +85,7 @@ services:
       CAMERA_2_LABEL: ${CAMERA_2_LABEL:-カメラ2}
       CAMERA_3_LABEL: ${CAMERA_3_LABEL:-カメラ3}
       CAMERA_4_LABEL: ${CAMERA_4_LABEL:-カメラ4}
+      SAVE_CLIP_SECONDS: ${SAVE_CLIP_SECONDS:-30}
     volumes:
       - hls:/hls:ro
       - recordings:/recordings:ro
