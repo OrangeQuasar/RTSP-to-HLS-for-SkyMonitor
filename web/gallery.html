@@ -46,11 +46,34 @@
       border-bottom: 1px solid #262b33;
     }
 
+    .hour-group { margin: 4px 16px; }
+    .hour-group summary.hour-heading {
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 4px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #cbd5e1;
+      list-style: none;
+      border-radius: 6px;
+    }
+    .hour-group summary.hour-heading::-webkit-details-marker { display: none; }
+    .hour-group summary.hour-heading::before {
+      content: "▶";
+      font-size: 10px;
+      color: #7dd3fc;
+      transition: transform 0.15s ease;
+    }
+    .hour-group[open] summary.hour-heading::before { transform: rotate(90deg); }
+    .hour-group summary.hour-heading:hover { background: rgba(255, 255, 255, 0.05); }
+
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
       gap: 12px;
-      padding: 0 16px 8px;
+      padding: 4px 0 12px;
     }
 
     .card {
@@ -109,8 +132,7 @@
 <body>
   <header>
     <h1>アーカイブ</h1>
-    <p class="caption">各カメラで録画された映像一覧です（新しい順）。</p>
-    <p class="caption">各映像は10分ごとに保存されます。最新の映像のアーカイブには少し時間がかかる場合があります。</p>
+    <p class="caption">各カメラで録画された映像一覧です（新しい順）。各映像は定期的に保存されます。最新の映像のアーカイブには少し時間がかかる場合があります。</p>
     <a class="nav-link" href="/">← ライブ映像に戻る</a>
   </header>
 
@@ -170,6 +192,10 @@
       return `${parts.hour}:${parts.minute}:${parts.second}`;
     }
 
+    function hourLabel(parts) {
+      return `${parts.hour}時台`;
+    }
+
     function groupByDate(recordings) {
       const groups = new Map();
       for (const recording of recordings) {
@@ -179,6 +205,16 @@
           : recording.start;
 
         const key = dateKey(toJstParts(recording.start));
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(recording);
+      }
+      return groups;
+    }
+
+    function groupByHour(items) {
+      const groups = new Map();
+      for (const recording of items) {
+        const key = toJstParts(recording.start).hour;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(recording);
       }
@@ -213,6 +249,8 @@
     }
 
     function renderGroups(groups, labelMap, container) {
+      let isFirstHourGroup = true;
+
       for (const items of groups.values()) {
         const section = document.createElement("section");
         section.className = "day-group";
@@ -222,12 +260,28 @@
         heading.textContent = dateLabel(toJstParts(items[0].start));
         section.appendChild(heading);
 
-        const grid = document.createElement("div");
-        grid.className = "grid";
-        for (const recording of items) {
-          grid.appendChild(createCard(recording, labelMap));
+        const hourGroups = groupByHour(items);
+        for (const hourItems of hourGroups.values()) {
+          const details = document.createElement("details");
+          details.className = "hour-group";
+          // 直近の時間帯だけ最初から開いておく
+          details.open = isFirstHourGroup;
+          isFirstHourGroup = false;
+
+          const summary = document.createElement("summary");
+          summary.className = "hour-heading";
+          summary.textContent = hourLabel(toJstParts(hourItems[0].start));
+          details.appendChild(summary);
+
+          const grid = document.createElement("div");
+          grid.className = "grid";
+          for (const recording of hourItems) {
+            grid.appendChild(createCard(recording, labelMap));
+          }
+          details.appendChild(grid);
+
+          section.appendChild(details);
         }
-        section.appendChild(grid);
 
         container.appendChild(section);
       }
@@ -253,7 +307,7 @@
           fetch("/api/recordings"),
         ]);
         const { cameras } = await statusRes.json();
-        const { events: recordings, total } = await recRes.json();
+        const { events: recordings } = await recRes.json();
 
         const labelMap = Object.fromEntries(cameras.map((c) => [c.id, c.label]));
 
@@ -266,10 +320,7 @@
         const groups = groupByDate(recordings);
         renderGroups(groups, labelMap, list);
 
-        banner.className = "info";
-        banner.textContent = total > recordings.length
-          ? `${recordings.length}件を表示中（全${total}件中、新しい順）`
-          : `${total}件の録画`;
+        banner.hidden = true;
       } catch {
         banner.className = "ng";
         banner.textContent = "録画一覧を取得できませんでした。";
