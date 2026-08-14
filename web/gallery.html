@@ -97,7 +97,7 @@
 <body>
   <header>
     <h1>録画一覧</h1>
-    <p class="caption">各カメラの常時録画クリップの一覧です（新しい順）。</p>
+    <p class="caption">各カメラで録画された映像一覧です（新しい順）。</p>
     <a class="nav-link" href="/">← ライブ映像に戻る</a>
   </header>
 
@@ -110,9 +110,29 @@
 
   <script>
     function formatTimestamp(ts) {
-      // yyyymmddhhmmss -> yyyy-mm-dd hh:mm:ss
-      return `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)} ` +
-             `${ts.slice(8, 10)}:${ts.slice(10, 12)}:${ts.slice(12, 14)}`;
+      // ファイル名のタイムスタンプ (yyyymmddhhmmss) は録画コンテナの時刻(UTC)なので
+      // 日本標準時 (UTC+9) に変換して表示する
+      const utcMs = Date.UTC(
+        Number(ts.slice(0, 4)),
+        Number(ts.slice(4, 6)) - 1,
+        Number(ts.slice(6, 8)),
+        Number(ts.slice(8, 10)),
+        Number(ts.slice(10, 12)),
+        Number(ts.slice(12, 14)),
+      );
+      const parts = new Intl.DateTimeFormat("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      }).formatToParts(new Date(utcMs));
+      const get = (type) => parts.find((p) => p.type === type).value;
+      return `${get("year")}-${get("month")}-${get("day")} ` +
+             `${get("hour")}:${get("minute")}:${get("second")} JST`;
     }
 
     function createCard(recording, labelMap) {
