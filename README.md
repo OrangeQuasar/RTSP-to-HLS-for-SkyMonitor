@@ -63,6 +63,8 @@ cleanup (定期削除) ──── 保持期間を過ぎた録画を削除 ─�
 - カメラが4台未満の場合も、使わない `RTSP_URL_N` にダミーの URL を設定しておく必要があります（該当パネルはオフライン表示のままになります）。
 - 録画は `/gallery.html` から確認できます。個別に見たい場合は `docker compose exec streamer1 ls /recordings/cam1`
   のように各コンテナ内を直接参照することもできます。
+- ライブ画面（`/`）の各カメラパネルにある「💾 保存」ボタンを押すと、直近約30秒分のクリップをその場で
+  ブラウザにダウンロードできます。サーバー側の `/recordings` には保存されないため、ギャラリーには表示されません。
 - 録画ファイルは既定10分単位で分割されます（`streamer/stream.sh` の `RECORDING_SEGMENT_SECONDS`）。変更したい場合は
   `docker-compose.yml` の `streamerN` に環境変数として追加してください。
 - `RECORDING_RETENTION_DAYS` を超えた録画は `cleanup` サービスが1時間おきに削除します（`cleanup/cleanup.sh` の

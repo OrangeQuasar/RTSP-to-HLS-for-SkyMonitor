@@ -89,6 +89,21 @@
     }
     .dot.live { background: #2ecc71; }
 
+    .save-btn {
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      padding: 4px 10px;
+      border: none;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.5);
+      color: #fff;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .save-btn:hover { background: rgba(0, 0, 0, 0.7); }
+    .save-btn:disabled { cursor: default; opacity: 0.7; }
+
     footer {
       padding: 6px 16px 10px;
       font-size: 12px;
@@ -122,8 +137,47 @@
             <span class="dot" id="dot-${camId}"></span>
             <span id="label-${camId}"></span>
           </div>
+          <button class="save-btn" id="save-${camId}">💾 保存</button>
         </div>`;
       document.getElementById("grid").appendChild(cell);
+
+      const saveBtn = document.getElementById(`save-${camId}`);
+      saveBtn.addEventListener("click", () => saveClip(camId, saveBtn));
+    }
+
+    function filenameFromResponse(res, fallback) {
+      const header = res.headers.get("Content-Disposition") || "";
+      const match = header.match(/filename="?([^";]+)"?/);
+      return match ? match[1] : fallback;
+    }
+
+    async function saveClip(camId, btn) {
+      const originalText = "今すぐ保存";
+      btn.disabled = true;
+      btn.textContent = "保存中…";
+      try {
+        const res = await fetch(`/api/recordings/save?camera_id=${camId}`, { method: "POST" });
+        if (!res.ok) throw new Error("save failed");
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filenameFromResponse(res, `${camId}.mp4`);
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        btn.textContent = "保存しました ✓";
+      } catch {
+        btn.textContent = "保存に失敗しました";
+      } finally {
+        setTimeout(() => {
+          btn.textContent = originalText;
+          btn.disabled = false;
+        }, 2500);
+      }
     }
 
     function startPlayer(camId) {

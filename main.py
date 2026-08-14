@@ -1,9 +1,14 @@
 import os
 import re
+import subprocess
+import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
 HLS_ROOT = Path(os.environ.get("HLS_ROOT", "/hls"))
 RECORDINGS_ROOT = Path(os.environ.get("RECORDINGS_ROOT", "/recordings"))
@@ -11,6 +16,10 @@ RECORDINGS_ROOT = Path(os.environ.get("RECORDINGS_ROOT", "/recordings"))
 STALE_SECONDS = 30
 # 一覧に返す録画ファイルの上限（新しい順）
 RECORDINGS_LIMIT = 300
+# 「今すぐ保存」でダウンロードさせるクリップの長さ（秒）
+SAVE_CLIP_SECONDS = 30
+# ライブ配信側が保持しているセグメントの上限（streamer/stream.sh の hls_list_size と対応）
+SAVE_CLIP_MAX_SECONDS = 55
 
 CAMERA_IDS = ["cam1", "cam2", "cam3", "cam4"]
 
@@ -48,7 +57,8 @@ def list_recordings(camera_id: str) -> list[dict]:
             )
 
     events.sort(key=lambda e: e["timestamp"], reverse=True)
-    return events
+    # 先頭（最新）のファイルは現在撮影中でまだ確定していないため一覧から除外する
+    return events[1:]
 
 
 @app.get("/api/status")
@@ -69,3 +79,64 @@ def recordings() -> dict:
         events.extend(list_recordings(camera_id))
     events.sort(key=lambda e: e["timestamp"], reverse=True)
     return {"events": events[:RECORDINGS_LIMIT], "total": len(events)}
+
+
+def recent_hls_segments(camera_id: str, seconds: float) -> list[str]:
+    """配信中のHLSプレイリストから、直近 seconds 秒分のセグメントファイル名を古い順に返す"""
+    playlist = HLS_ROOT / camera_id / "stream.m3u8"
+    if not playlist.exists():
+        return []
+
+    segments = []  # (duration, filename)
+    pending_duration = None
+    for line in playlist.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("#EXTINF:"):
+            pending_duration = float(line.removeprefix("#EXTINF:").rstrip(",").split(",")[0])
+        elif line and not line.startswith("#") and pending_duration is not None:
+            segments.append((pending_duration, line))
+            pending_duration = None
+
+    chosen = []
+    total = 0.0
+    for duration, name in reversed(segments):
+        chosen.append(name)
+        total += duration
+        if total >= seconds:
+            break
+    chosen.reverse()
+    return chosen
+
+
+@app.post("/api/recordings/save")
+def save_clip(camera_id: str, seconds: float = SAVE_CLIP_SECONDS) -> FileResponse:
+    if camera_id not in CAMERA_IDS:
+        raise HTTPException(status_code=404, detail="unknown camera_id")
+    seconds = max(5.0, min(seconds, SAVE_CLIP_MAX_SECONDS))
+
+    segment_names = recent_hls_segments(camera_id, seconds)
+    if not segment_names:
+        raise HTTPException(status_code=409, detail="no live segments available")
+
+    # 録画一覧（/recordings）には残さず、その場でダウンロードさせるだけの一時ファイルとして書き出す
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    download_name = f"{camera_id}_{ts}.mp4"
+    tmp_path = Path(tempfile.gettempdir()) / f"skymonitor_save_{camera_id}_{ts}.mp4"
+
+    segment_paths = [str(HLS_ROOT / camera_id / name) for name in segment_names]
+    concat_input = "concat:" + "|".join(segment_paths)
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", concat_input, "-c", "copy", "-movflags", "+faststart", str(tmp_path)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="failed to save clip")
+
+    return FileResponse(
+        tmp_path,
+        media_type="video/mp4",
+        filename=download_name,
+        background=BackgroundTask(tmp_path.unlink, missing_ok=True),
+    )
