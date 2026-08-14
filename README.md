@@ -53,6 +53,9 @@ cleanup (定期削除) ──── 保持期間を過ぎた録画を削除 ─�
 | `RECORDING_RETENTION_DAYS` | `3` | 常時録画の保持期間（日）。これを超えた録画ファイルは `cleanup` サービスが自動削除する |
 | `RECORDING_SEGMENT_SECONDS` | `600` | 常時録画のファイル分割間隔（秒）。この単位でアーカイブの1本の映像が区切られる |
 | `SAVE_CLIP_SECONDS` | `30` | ライブ画面の「今すぐ保存」でダウンロードできるクリップの長さ（秒） |
+| `RECORDING_NIGHT_ONLY` | `false` | `true` にすると夜間のみ録画（アーカイブ）を行う。ライブ配信は時間帯に関わらず常時視聴できる |
+| `RECORDING_START_HOUR` | `18` | 録画を開始する時刻（0-23、`RECORDING_NIGHT_ONLY=true` のときのみ有効） |
+| `RECORDING_END_HOUR` | `6` | 録画を終了する時刻（0-23）。開始時刻より小さい場合は日をまたいで判定される（既定では18時〜翌6時が録画対象） |
 
 公開ポートは `8000` 固定（`docker-compose.yml` の `ports` で指定）。変更したい場合は `docker-compose.yml` を直接編集してください。
 
