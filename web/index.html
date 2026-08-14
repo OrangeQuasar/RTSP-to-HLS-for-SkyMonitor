@@ -115,7 +115,7 @@
   <header>
     <h1>山形大学小白川キャンパス 屋上スカイモニター映像</h1>
     <p class="caption"><a class="caption-link" href="https://twos.sola.or.jp/" target="_blank" rel="noopener">TWOS</a>の一部メンバーが、火球を捉えられればいいなと思って作成・運用しています。</p>
-    <a class="nav-link" href="/gallery.html">録画一覧を見る →</a>
+    <a class="nav-link" href="/gallery.html">アーカイブはこちら →</a>
   </header>
 
   <div id="status" class="ng">状態を確認しています…</div>
@@ -137,7 +137,7 @@
             <span class="dot" id="dot-${camId}"></span>
             <span id="label-${camId}"></span>
           </div>
-          <button class="save-btn" id="save-${camId}">💾 保存</button>
+          <button class="save-btn" id="save-${camId}">今すぐ保存</button>
         </div>`;
       document.getElementById("grid").appendChild(cell);
 
@@ -169,7 +169,7 @@
         a.remove();
         URL.revokeObjectURL(url);
 
-        btn.textContent = "保存しました ✓";
+        btn.textContent = "保存しました";
       } catch {
         btn.textContent = "保存に失敗しました";
       } finally {
