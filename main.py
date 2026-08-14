@@ -40,6 +40,9 @@ def list_recordings(camera_id: str) -> list[dict]:
                 {
                     "camera_id": camera_id,
                     "timestamp": m.group(1) + m.group(2),
+                    # 撮影終了時刻の目安として、ファイルの最終更新時刻(epoch秒)を返す
+                    # 録画中（分割の最新ファイル）の場合は直近の書き込み時刻になる
+                    "end_epoch": entry.stat().st_mtime,
                     "video": entry.name,
                 }
             )
