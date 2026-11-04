@@ -2,6 +2,10 @@
 .venv/
 __pycache__/
 *.pyc
+.ruff_cache/
 
-# 認証情報を含むため
+# ローカル開発で HLS_ROOT / RECORDINGS_ROOT に使う作業用ディレクトリ（README 参照）
+tmp/
+
+# 認証情報（RTSP URL のパスワード・Discord Webhook URL）を含むため
 .env

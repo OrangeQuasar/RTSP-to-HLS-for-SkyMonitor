@@ -6,39 +6,10 @@
   <title>SkyMonitor Live</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+  <link rel="stylesheet" href="/style.css">
   <style>
-    * { box-sizing: border-box; }
-    html, body {
-      margin: 0;
-      height: 100%;
-      background: #081426;
-      color: #fafafa;
-      font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
-    }
+    html, body { height: 100%; }
     body { display: flex; flex-direction: column; }
-
-    header { padding: 12px 16px 8px; }
-    h1 { margin: 0; font-size: 20px; font-weight: 600; }
-    .caption { margin: 4px 0 0; font-size: 13px; color: #9aa0a6; }
-    .caption-link { color: #7dd3fc; text-decoration: none; }
-    .caption-link:hover { text-decoration: underline; }
-    .nav-link {
-      display: inline-block;
-      margin-top: 8px;
-      color: #7dd3fc;
-      font-size: 13px;
-      text-decoration: none;
-    }
-    .nav-link:hover { text-decoration: underline; }
-
-    #status {
-      margin: 8px 16px;
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-size: 14px;
-    }
-    #status.ok { background: rgba(46, 204, 113, 0.15); color: #2ecc71; }
-    #status.ng { background: rgba(241, 196, 15, 0.15); color: #f1c40f; }
 
     main {
       flex: 1;
@@ -103,12 +74,6 @@
     }
     .save-btn:hover { background: rgba(0, 0, 0, 0.7); }
     .save-btn:disabled { cursor: default; opacity: 0.7; }
-
-    footer {
-      padding: 6px 16px 10px;
-      font-size: 12px;
-      color: #9aa0a6;
-    }
   </style>
 </head>
 <body>
@@ -227,40 +192,59 @@
       }
     }
 
-    async function refreshStatus() {
+    async function fetchCameras() {
+      const res = await fetch("/api/status");
+      if (!res.ok) throw new Error("status failed");
+      const { cameras } = await res.json();
+      return cameras;
+    }
+
+    function renderStatus(cameras) {
       const banner = document.getElementById("status");
-      try {
-        const res = await fetch("/api/status");
-        const { cameras } = await res.json();
+      for (const cam of cameras) {
+        document.getElementById(`label-${cam.id}`).textContent = cam.label;
+        document.getElementById(`dot-${cam.id}`).classList.toggle("live", cam.live);
+      }
 
-        for (const cam of cameras) {
-          document.getElementById(`label-${cam.id}`).textContent = cam.label;
-          document.getElementById(`dot-${cam.id}`).classList.toggle("live", cam.live);
-        }
-
-        const liveCount = cameras.filter((c) => c.live).length;
-        if (liveCount > 0) {
-          banner.className = "ok";
-          banner.textContent = `配信中 — ${liveCount}/${cameras.length} 台のカメラ映像を受信しています`;
-        } else {
-          banner.className = "ng";
-          banner.textContent = "映像が受信されていません。しばらく経ってからもういちどアクセスしてください。";
-        }
-      } catch {
+      const liveCount = cameras.filter((c) => c.live).length;
+      if (liveCount > 0) {
+        banner.className = "ok";
+        banner.textContent = `配信中 — ${liveCount}/${cameras.length} 台のカメラ映像を受信しています`;
+      } else {
         banner.className = "ng";
-        banner.textContent = "状態を取得できませんでした。";
+        banner.textContent = "映像が受信されていません。しばらく経ってからもういちどアクセスしてください。";
+      }
+    }
+
+    function renderStatusError() {
+      const banner = document.getElementById("status");
+      banner.className = "ng";
+      banner.textContent = "状態を取得できませんでした。";
+    }
+
+    async function refreshStatus() {
+      try {
+        renderStatus(await fetchCameras());
+      } catch {
+        renderStatusError();
       }
     }
 
     async function init() {
       // パネルの構成（ID とラベル）はステータス API から取得する
-      const res = await fetch("/api/status");
-      const { cameras } = await res.json();
-      for (const cam of cameras) {
-        createPanel(cam.id);
-        startPlayer(cam.id);
+      try {
+        const cameras = await fetchCameras();
+        for (const cam of cameras) {
+          createPanel(cam.id);
+          startPlayer(cam.id);
+        }
+        renderStatus(cameras);
+      } catch {
+        renderStatusError();
+        // パネルを作れないので、少し待ってページごと読み直す
+        setTimeout(() => location.reload(), STATUS_INTERVAL_MS);
+        return;
       }
-      await refreshStatus();
       setInterval(refreshStatus, STATUS_INTERVAL_MS);
     }
 

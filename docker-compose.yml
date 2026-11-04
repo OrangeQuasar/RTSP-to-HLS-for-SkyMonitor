@@ -1,67 +1,51 @@
+# 4台の streamer で共通の設定（カメラごとに異なるのは RTSP_URL / VIDEO_CODEC / CAMERA_NAME のみ）
+x-streamer: &streamer
+  build: ./streamer
+  restart: unless-stopped
+  volumes:
+    - hls:/hls
+    - recordings:/recordings
+
+x-streamer-env: &streamer-env
+  RECORDING_SEGMENT_SECONDS: ${RECORDING_SEGMENT_SECONDS:-600}
+  SAVE_CLIP_SECONDS: ${SAVE_CLIP_SECONDS:-30}
+  RECORDING_NIGHT_ONLY: ${RECORDING_NIGHT_ONLY:-false}
+  RECORDING_START_HOUR: ${RECORDING_START_HOUR:-18}
+  RECORDING_END_HOUR: ${RECORDING_END_HOUR:-6}
+  RECORDING_HOURS_TZ: ${RECORDING_HOURS_TZ:-JST-9}
+
 services:
   streamer1:
-    build: ./streamer
-    restart: unless-stopped
+    <<: *streamer
     environment:
+      <<: *streamer-env
+      CAMERA_NAME: cam1
       RTSP_URL: ${RTSP_URL_1:?RTSP_URL_1 を .env に設定してください}
       VIDEO_CODEC: ${VIDEO_CODEC_1:-copy}
-      CAMERA_NAME: cam1
-      RECORDING_SEGMENT_SECONDS: ${RECORDING_SEGMENT_SECONDS:-600}
-      SAVE_CLIP_SECONDS: ${SAVE_CLIP_SECONDS:-30}
-      RECORDING_NIGHT_ONLY: ${RECORDING_NIGHT_ONLY:-false}
-      RECORDING_START_HOUR: ${RECORDING_START_HOUR:-18}
-      RECORDING_END_HOUR: ${RECORDING_END_HOUR:-6}
-    volumes:
-      - hls:/hls
-      - recordings:/recordings
 
   streamer2:
-    build: ./streamer
-    restart: unless-stopped
+    <<: *streamer
     environment:
+      <<: *streamer-env
+      CAMERA_NAME: cam2
       RTSP_URL: ${RTSP_URL_2:?RTSP_URL_2 を .env に設定してください}
       VIDEO_CODEC: ${VIDEO_CODEC_2:-copy}
-      CAMERA_NAME: cam2
-      RECORDING_SEGMENT_SECONDS: ${RECORDING_SEGMENT_SECONDS:-600}
-      SAVE_CLIP_SECONDS: ${SAVE_CLIP_SECONDS:-30}
-      RECORDING_NIGHT_ONLY: ${RECORDING_NIGHT_ONLY:-false}
-      RECORDING_START_HOUR: ${RECORDING_START_HOUR:-18}
-      RECORDING_END_HOUR: ${RECORDING_END_HOUR:-6}
-    volumes:
-      - hls:/hls
-      - recordings:/recordings
 
   streamer3:
-    build: ./streamer
-    restart: unless-stopped
+    <<: *streamer
     environment:
+      <<: *streamer-env
+      CAMERA_NAME: cam3
       RTSP_URL: ${RTSP_URL_3:?RTSP_URL_3 を .env に設定してください}
       VIDEO_CODEC: ${VIDEO_CODEC_3:-copy}
-      CAMERA_NAME: cam3
-      RECORDING_SEGMENT_SECONDS: ${RECORDING_SEGMENT_SECONDS:-600}
-      SAVE_CLIP_SECONDS: ${SAVE_CLIP_SECONDS:-30}
-      RECORDING_NIGHT_ONLY: ${RECORDING_NIGHT_ONLY:-false}
-      RECORDING_START_HOUR: ${RECORDING_START_HOUR:-18}
-      RECORDING_END_HOUR: ${RECORDING_END_HOUR:-6}
-    volumes:
-      - hls:/hls
-      - recordings:/recordings
 
   streamer4:
-    build: ./streamer
-    restart: unless-stopped
+    <<: *streamer
     environment:
+      <<: *streamer-env
+      CAMERA_NAME: cam4
       RTSP_URL: ${RTSP_URL_4:?RTSP_URL_4 を .env に設定してください}
       VIDEO_CODEC: ${VIDEO_CODEC_4:-copy}
-      CAMERA_NAME: cam4
-      RECORDING_SEGMENT_SECONDS: ${RECORDING_SEGMENT_SECONDS:-600}
-      SAVE_CLIP_SECONDS: ${SAVE_CLIP_SECONDS:-30}
-      RECORDING_NIGHT_ONLY: ${RECORDING_NIGHT_ONLY:-false}
-      RECORDING_START_HOUR: ${RECORDING_START_HOUR:-18}
-      RECORDING_END_HOUR: ${RECORDING_END_HOUR:-6}
-    volumes:
-      - hls:/hls
-      - recordings:/recordings
 
   # 保持期間を過ぎた録画ファイルを定期的に削除する
   cleanup:
@@ -69,38 +53,51 @@ services:
     restart: unless-stopped
     environment:
       RECORDING_RETENTION_DAYS: ${RECORDING_RETENTION_DAYS:-3}
+      CLEANUP_INTERVAL_SECONDS: ${CLEANUP_INTERVAL_SECONDS:-3600}
     volumes:
       - recordings:/recordings
 
-  web:
-    image: nginx:1.27-alpine
-    restart: unless-stopped
-    ports:
-      - "8000:8080"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./web:/usr/share/nginx/html:ro
-      - hls:/hls:ro
-      - recordings:/recordings:ro
-    depends_on:
-      - streamer1
-      - streamer2
-      - streamer3
-      - streamer4
-      - api
-
+  # ページ・HLS・録画・API をすべて配信する（FastAPI）
   api:
     build: .
     restart: unless-stopped
+    ports:
+      - "8000:8000"
     environment:
       CAMERA_1_LABEL: ${CAMERA_1_LABEL:-カメラ1}
       CAMERA_2_LABEL: ${CAMERA_2_LABEL:-カメラ2}
       CAMERA_3_LABEL: ${CAMERA_3_LABEL:-カメラ3}
       CAMERA_4_LABEL: ${CAMERA_4_LABEL:-カメラ4}
       SAVE_CLIP_SECONDS: ${SAVE_CLIP_SECONDS:-30}
+      SAVE_RATE_PER_MINUTE: ${SAVE_RATE_PER_MINUTE:-6}
+      SAVE_BURST: ${SAVE_BURST:-4}
     volumes:
+      - ./web:/app/web:ro
       - hls:/hls:ro
       - recordings:/recordings:ro
+
+  # Cloudflare Quick Tunnel でインターネットに公開する（任意・アカウント不要）
+  # .env に COMPOSE_PROFILES=tunnel を設定すると起動し、https://xxxx.trycloudflare.com の URL が発行される
+  # URL は起動のたびに変わる（docker compose logs cloudflared で確認）
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.7
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    # --metrics: notifier が発行された URL を取得するためのメトリクスサーバー（ホストには公開しない）
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://api:8000
+    depends_on:
+      - api
+
+  # cloudflared が発行した URL を Discord に通知する（DISCORD_WEBHOOK_URL を設定したときのみ送信）
+  notifier:
+    build: .
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: ["uv", "run", "--frozen", "python", "notify_discord.py"]
+    environment:
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+    depends_on:
+      - cloudflared
 
 volumes:
   hls:
