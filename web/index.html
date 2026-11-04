@@ -20,10 +20,14 @@
       gap: 8px;
       padding: 0 8px;
     }
+    /* 有効なカメラが少ないときはグリッドを詰める（1台: 1x1、2台: 2x1、3〜4台: 2x2） */
+    main.count-1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+    main.count-2 { grid-template-rows: 1fr; }
     /* 左列は右寄せ・右列は左寄せにして、中央の間隔を grid の gap だけにする */
     .cell { display: flex; align-items: center; min-width: 0; min-height: 0; }
     .cell:nth-child(odd) { justify-content: flex-end; }
     .cell:nth-child(even) { justify-content: flex-start; }
+    main.count-1 .cell { justify-content: center; }
 
     .panel {
       position: relative;
@@ -74,6 +78,16 @@
     }
     .save-btn:hover { background: rgba(0, 0, 0, 0.7); }
     .save-btn:disabled { cursor: default; opacity: 0.7; }
+
+    /* RTSP URL が未設定のカメラ（HIDE_DISABLED_CAMERAS=false のときだけ表示される） */
+    .panel.unused {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0f1a2e;
+      color: #6b7280;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
@@ -91,6 +105,16 @@
 
   <script>
     const STATUS_INTERVAL_MS = 10000;
+
+    function createUnusedPanel(cam) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      const panel = document.createElement("div");
+      panel.className = "panel unused";
+      panel.textContent = `${cam.label}（未設定）`;
+      cell.appendChild(panel);
+      document.getElementById("grid").appendChild(cell);
+    }
 
     function createPanel(camId) {
       const cell = document.createElement("div");
@@ -192,15 +216,21 @@
       }
     }
 
-    async function fetchCameras() {
+    async function fetchStatus() {
       const res = await fetch("/api/status");
       if (!res.ok) throw new Error("status failed");
-      const { cameras } = await res.json();
-      return cameras;
+      const { cameras, hide_disabled: hideDisabled } = await res.json();
+      return { cameras, hideDisabled };
     }
 
-    function renderStatus(cameras) {
+    function renderStatus(allCameras) {
       const banner = document.getElementById("status");
+      const cameras = allCameras.filter((c) => c.enabled);
+      if (cameras.length === 0) {
+        banner.className = "ng";
+        banner.textContent = "有効なカメラがありません（.env の RTSP_URL_1〜4 を設定してください）。";
+        return;
+      }
       for (const cam of cameras) {
         document.getElementById(`label-${cam.id}`).textContent = cam.label;
         document.getElementById(`dot-${cam.id}`).classList.toggle("live", cam.live);
@@ -224,7 +254,7 @@
 
     async function refreshStatus() {
       try {
-        renderStatus(await fetchCameras());
+        renderStatus((await fetchStatus()).cameras);
       } catch {
         renderStatusError();
       }
@@ -233,10 +263,17 @@
     async function init() {
       // パネルの構成（ID とラベル）はステータス API から取得する
       try {
-        const cameras = await fetchCameras();
-        for (const cam of cameras) {
-          createPanel(cam.id);
-          startPlayer(cam.id);
+        const { cameras, hideDisabled } = await fetchStatus();
+        // 未設定のカメラを外して詰めるか、「未設定」パネルとして元の位置に残すか（HIDE_DISABLED_CAMERAS）
+        const shown = hideDisabled ? cameras.filter((c) => c.enabled) : cameras;
+        document.getElementById("grid").classList.add(`count-${Math.min(shown.length, 4)}`);
+        for (const cam of shown) {
+          if (cam.enabled) {
+            createPanel(cam.id);
+            startPlayer(cam.id);
+          } else {
+            createUnusedPanel(cam);
+          }
         }
         renderStatus(cameras);
       } catch {

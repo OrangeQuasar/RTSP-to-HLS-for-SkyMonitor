@@ -1,8 +1,10 @@
-"""cloudflared（Quick Tunnel）が発行した URL を Discord に通知する
+"""SkyMonitor の出来事を Discord に通知する
 
-cloudflared のメトリクスサーバーを定期的に確認し、トンネルが接続済みで
-URL が前回通知したものから変わっていれば Discord の Webhook に送信する。
-cloudflared が再起動して URL が変わった場合も自動で通知される。
+- カメラの接続が切れたとき・復旧したとき（api の /api/status を定期的に確認）
+- cloudflared（Quick Tunnel）が公開 URL を発行したとき（cloudflared のメトリクスを確認）
+
+通知の種類ごとに送信先の Webhook を分けられる。個別の Webhook が未設定なら DISCORD_WEBHOOK_URL に送り、
+それも未設定なら送信せずログに出力するだけにする。
 """
 
 import json
@@ -10,13 +12,25 @@ import os
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
+# 共通の送信先（下の2つが未設定のときに使う）
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+# 公開 URL（Web リンク）の送信先
+DISCORD_LINK_WEBHOOK_URL = os.environ.get("DISCORD_LINK_WEBHOOK_URL") or DISCORD_WEBHOOK_URL
+# カメラの切断・復旧（ステータス）の送信先
+DISCORD_STATUS_WEBHOOK_URL = os.environ.get("DISCORD_STATUS_WEBHOOK_URL") or DISCORD_WEBHOOK_URL
+API_URL = os.environ.get("API_URL", "http://api:8000")
 # cloudflared の --metrics で指定したアドレス（docker-compose.yml と揃える）
 CLOUDFLARED_METRICS_URL = os.environ.get("CLOUDFLARED_METRICS_URL", "http://cloudflared:2000")
 POLL_INTERVAL_SECONDS = 10
+# この秒数以上オフラインが続いたら切断とみなす（ffmpeg の再起動などによる一瞬の途切れでは通知しない）
+OFFLINE_GRACE_SECONDS = 30
+JST = timezone(timedelta(hours=9))
 # Discord（の手前の Cloudflare）は Python 既定の User-Agent を拒否することがあるため明示する
 USER_AGENT = "SkyMonitor-Notifier (https://github.com/OrangeQuasar/RTSP-to-HLS-for-SkyMonitor, 1.0)"
+
+FETCH_ERRORS = (urllib.error.URLError, OSError, ValueError)
 
 
 def log(message: str) -> None:
@@ -34,43 +48,108 @@ def request(url: str, data: dict | None = None) -> bytes:
         return res.read()
 
 
-def current_tunnel_url() -> str | None:
-    """トンネルが接続済みなら公開 URL を、まだなら None を返す"""
+def send(webhook_url: str, message: str) -> bool:
+    """Discord に送信する。送信できた（または送信先が未設定）なら True"""
+    log(message.replace("\n", " | "))
+    if not webhook_url:
+        return True
     try:
-        # /ready はトンネルの接続が確立するまで 200 以外を返す
-        request(f"{CLOUDFLARED_METRICS_URL}/ready")
-        hostname = json.loads(request(f"{CLOUDFLARED_METRICS_URL}/quicktunnel")).get("hostname")
-    except (urllib.error.URLError, OSError, ValueError):
-        return None
-    return f"https://{hostname}" if hostname else None
-
-
-def notify(url: str) -> bool:
-    message = (
-        "📡 SkyMonitor の公開 URL が発行されました\n"
-        f"ライブ映像: {url}/\n"
-        f"アーカイブ: {url}/gallery.html"
-    )
-    try:
-        request(DISCORD_WEBHOOK_URL, {"content": message})
+        request(webhook_url, {"content": message})
     except (urllib.error.URLError, OSError) as e:
         log(f"failed to send to Discord: {e}")
         return False
     return True
 
 
-def main() -> None:
-    if not DISCORD_WEBHOOK_URL:
-        log("DISCORD_WEBHOOK_URL is not set. notifications are disabled.")
+def now_label() -> str:
+    return datetime.now(JST).strftime("%Y-%m-%d %H:%M")
 
-    notified_url = None
-    while True:
-        url = current_tunnel_url()
-        if url and url != notified_url:
-            log(f"tunnel url: {url}")
+
+class CameraMonitor:
+    """カメラごとのライブ状態を追跡し、切断・復旧を通知する
+
+    起動直後は各カメラが接続されるまでオフラインに見えるため、一度ライブになったカメラだけを対象にする。
+    復旧の通知は、切断を通知したカメラに対してのみ送る。
+    """
+
+    def __init__(self) -> None:
+        self.seen_live: set[str] = set()
+        self.offline_since: dict[str, float] = {}
+        self.notified_down: set[str] = set()
+
+    def check(self) -> None:
+        try:
+            cameras = json.loads(request(f"{API_URL}/api/status"))["cameras"]
+        except (*FETCH_ERRORS, KeyError):
+            # api 自体が落ちている・再起動中のときは判定しない
+            return
+
+        now = time.monotonic()
+        for cam in cameras:
+            if cam.get("enabled", True):
+                self._update(cam["id"], cam["label"], bool(cam["live"]), now)
+
+    def _update(self, cam_id: str, label: str, live: bool, now: float) -> None:
+        if live:
+            self.seen_live.add(cam_id)
+            self.offline_since.pop(cam_id, None)
+            if cam_id in self.notified_down and send(
+                DISCORD_STATUS_WEBHOOK_URL,
+                f"✅ {label} の接続が復旧しました（{now_label()}）"
+            ):
+                self.notified_down.discard(cam_id)
+            return
+
+        if cam_id not in self.seen_live or cam_id in self.notified_down:
+            return
+        since = self.offline_since.setdefault(cam_id, now)
+        if now - since >= OFFLINE_GRACE_SECONDS and send(
+            DISCORD_STATUS_WEBHOOK_URL,
+            f"⚠️ {label} の接続が切断されました（{now_label()}）"
+        ):
+            self.notified_down.add(cam_id)
+
+
+class TunnelMonitor:
+    """cloudflared が発行した公開 URL が変わるたびに通知する"""
+
+    def __init__(self) -> None:
+        self.notified_url: str | None = None
+
+    def check(self) -> None:
+        url = self._current_url()
+        if url and url != self.notified_url:
+            message = (
+                "📡 SkyMonitor の公開 URL が発行されました\n"
+                f"ライブ映像: {url}/\n"
+                f"アーカイブ: {url}/gallery.html"
+            )
             # 送信に失敗した場合は次の周期で再送する
-            if not DISCORD_WEBHOOK_URL or notify(url):
-                notified_url = url
+            if send(DISCORD_LINK_WEBHOOK_URL, message):
+                self.notified_url = url
+
+    @staticmethod
+    def _current_url() -> str | None:
+        """トンネルが接続済みなら公開 URL を、まだ（または tunnel を使っていない）なら None を返す"""
+        try:
+            # /ready はトンネルの接続が確立するまで 200 以外を返す
+            request(f"{CLOUDFLARED_METRICS_URL}/ready")
+            hostname = json.loads(request(f"{CLOUDFLARED_METRICS_URL}/quicktunnel")).get("hostname")
+        except FETCH_ERRORS:
+            return None
+        return f"https://{hostname}" if hostname else None
+
+
+def main() -> None:
+    if not DISCORD_LINK_WEBHOOK_URL:
+        log("no webhook for tunnel links. they are logged only.")
+    if not DISCORD_STATUS_WEBHOOK_URL:
+        log("no webhook for camera status. it is logged only.")
+
+    monitors = [CameraMonitor(), TunnelMonitor()]
+    while True:
+        for monitor in monitors:
+            monitor.check()
         time.sleep(POLL_INTERVAL_SECONDS)
 
 

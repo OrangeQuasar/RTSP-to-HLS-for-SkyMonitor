@@ -112,6 +112,19 @@ def camera_label(index: int) -> str:
     return os.environ.get(f"CAMERA_{index}_LABEL", f"カメラ{index}")
 
 
+def camera_enabled(index: int) -> bool:
+    # docker-compose.yml が RTSP_URL_N の有無から設定する。未設定（ローカル開発）なら有効扱い
+    return os.environ.get(f"CAMERA_{index}_ENABLED", "true") == "true"
+
+
+# RTSP_URL が空のカメラをライブ画面から外して詰めるか（false なら「未設定」パネルとして残す）
+HIDE_DISABLED_CAMERAS = os.environ.get("HIDE_DISABLED_CAMERAS", "true").lower() == "true"
+
+
+def enabled_camera_ids() -> list[str]:
+    return [cid for i, cid in enumerate(CAMERA_IDS, start=1) if camera_enabled(i)]
+
+
 def playlist_path(camera_id: str) -> Path:
     return HLS_ROOT / camera_id / PLAYLIST_NAME
 
@@ -193,10 +206,16 @@ def concat_segments(segments: list[Path], output: Path) -> bool:
 @app.get("/api/status")
 def status() -> dict:
     return {
+        "hide_disabled": HIDE_DISABLED_CAMERAS,
         "cameras": [
-            {"id": camera_id, "label": camera_label(i), "live": is_live(camera_id)}
+            {
+                "id": camera_id,
+                "label": camera_label(i),
+                "enabled": camera_enabled(i),
+                "live": camera_enabled(i) and is_live(camera_id),
+            }
             for i, camera_id in enumerate(CAMERA_IDS, start=1)
-        ]
+        ],
     }
 
 
@@ -211,7 +230,7 @@ def recordings() -> dict:
 def save_clip(
     request: Request, camera_id: str, seconds: float = SAVE_CLIP_SECONDS
 ) -> FileResponse:
-    if camera_id not in CAMERA_IDS:
+    if camera_id not in enabled_camera_ids():
         raise HTTPException(status_code=404, detail="unknown camera_id")
     if retry_after := save_limiter.acquire(client_key(request)):
         raise HTTPException(

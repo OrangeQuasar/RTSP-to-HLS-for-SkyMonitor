@@ -1,4 +1,5 @@
 # 4台の streamer で共通の設定（カメラごとに異なるのは RTSP_URL / VIDEO_CODEC / CAMERA_NAME のみ）
+# RTSP_URL_N を空にしたカメラには接続しない
 x-streamer: &streamer
   build: ./streamer
   restart: unless-stopped
@@ -20,7 +21,7 @@ services:
     environment:
       <<: *streamer-env
       CAMERA_NAME: cam1
-      RTSP_URL: ${RTSP_URL_1:?RTSP_URL_1 を .env に設定してください}
+      RTSP_URL: ${RTSP_URL_1:-}
       VIDEO_CODEC: ${VIDEO_CODEC_1:-copy}
 
   streamer2:
@@ -28,7 +29,7 @@ services:
     environment:
       <<: *streamer-env
       CAMERA_NAME: cam2
-      RTSP_URL: ${RTSP_URL_2:?RTSP_URL_2 を .env に設定してください}
+      RTSP_URL: ${RTSP_URL_2:-}
       VIDEO_CODEC: ${VIDEO_CODEC_2:-copy}
 
   streamer3:
@@ -36,7 +37,7 @@ services:
     environment:
       <<: *streamer-env
       CAMERA_NAME: cam3
-      RTSP_URL: ${RTSP_URL_3:?RTSP_URL_3 を .env に設定してください}
+      RTSP_URL: ${RTSP_URL_3:-}
       VIDEO_CODEC: ${VIDEO_CODEC_3:-copy}
 
   streamer4:
@@ -44,7 +45,7 @@ services:
     environment:
       <<: *streamer-env
       CAMERA_NAME: cam4
-      RTSP_URL: ${RTSP_URL_4:?RTSP_URL_4 を .env に設定してください}
+      RTSP_URL: ${RTSP_URL_4:-}
       VIDEO_CODEC: ${VIDEO_CODEC_4:-copy}
 
   # 保持期間を過ぎた録画ファイルを定期的に削除する
@@ -68,9 +69,15 @@ services:
       CAMERA_2_LABEL: ${CAMERA_2_LABEL:-カメラ2}
       CAMERA_3_LABEL: ${CAMERA_3_LABEL:-カメラ3}
       CAMERA_4_LABEL: ${CAMERA_4_LABEL:-カメラ4}
+      # RTSP_URL_N が設定されていれば "true"、空なら ""（URL 自体は api に渡さない）
+      CAMERA_1_ENABLED: ${RTSP_URL_1:+true}
+      CAMERA_2_ENABLED: ${RTSP_URL_2:+true}
+      CAMERA_3_ENABLED: ${RTSP_URL_3:+true}
+      CAMERA_4_ENABLED: ${RTSP_URL_4:+true}
       SAVE_CLIP_SECONDS: ${SAVE_CLIP_SECONDS:-30}
       SAVE_RATE_PER_MINUTE: ${SAVE_RATE_PER_MINUTE:-6}
       SAVE_BURST: ${SAVE_BURST:-4}
+      HIDE_DISABLED_CAMERAS: ${HIDE_DISABLED_CAMERAS:-true}
     volumes:
       - ./web:/app/web:ro
       - hls:/hls:ro
@@ -88,16 +95,19 @@ services:
     depends_on:
       - api
 
-  # cloudflared が発行した URL を Discord に通知する（DISCORD_WEBHOOK_URL を設定したときのみ送信）
+  # Discord への通知（DISCORD_WEBHOOK_URL を設定したときのみ送信）
+  # - カメラの接続が切れたとき・復旧したとき
+  # - cloudflared（tunnel プロファイル）が公開 URL を発行したとき
   notifier:
     build: .
     restart: unless-stopped
-    profiles: ["tunnel"]
     command: ["uv", "run", "--frozen", "python", "notify_discord.py"]
     environment:
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      DISCORD_LINK_WEBHOOK_URL: ${DISCORD_LINK_WEBHOOK_URL:-}
+      DISCORD_STATUS_WEBHOOK_URL: ${DISCORD_STATUS_WEBHOOK_URL:-}
     depends_on:
-      - cloudflared
+      - api
 
 volumes:
   hls:

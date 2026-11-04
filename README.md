@@ -12,7 +12,7 @@ Web ブラウザで 2x2 グリッドのリアルタイム視聴ができるよ�
 - **常時録画・夜間のみ録画**: 既定10分ごとの mp4 として保存。指定した時間帯だけ録画することも可能
 - **古い録画の自動削除**: 保持期間（既定3日）を過ぎた録画を自動で削除
 - **インターネット公開**（任意）: Cloudflare Quick Tunnel で、アカウント・ポート開放なしで公開
-- **Discord 通知**（任意）: 公開 URL が発行されるたびに Discord のチャンネルへ投稿
+- **Discord 通知**（任意）: カメラの切断・復旧と、公開 URL の発行を Discord のチャンネルへ投稿
 
 ## 構成
 
@@ -25,7 +25,7 @@ cleanup ──── 保持期間を過ぎた録画を削除 ──────�
 インターネット ──> Cloudflare ──Quick Tunnel──> cloudflared ──┐ (任意)
                                                   │           ▼
                          Discord <── notifier <───┘  ブラウザ(LAN) <--:8000-- api (FastAPI)
-                                (URL を通知・任意)               ── /               : ライブ画面
+                       (切断・URL を通知) └──状態を確認──>          ── /               : ライブ画面
                                                                  ── /gallery.html   : アーカイブ
                                                                  ── /hls/           : HLS 配信
                                                                  ── /recordings/    : 録画の配信
@@ -34,11 +34,11 @@ cleanup ──── 保持期間を過ぎた録画を削除 ──────�
 
 | サービス | 役割 |
 |---|---|
-| `streamer1`〜`streamer4` | カメラ1台ごとに ffmpeg で RTSP を受信し、ライブ配信用の HLS と録画用の mp4 を書き出す。ffmpeg が落ちても自動で再起動する |
+| `streamer1`〜`streamer4` | カメラ1台ごとに ffmpeg で RTSP を受信し、ライブ配信用の HLS と録画用の mp4 を書き出す。ffmpeg が落ちても自動で再起動する。RTSP URL が空のカメラには接続せず待機する |
 | `cleanup` | 保持期間を過ぎた録画ファイルを定期的に削除する |
 | `api` | FastAPI（uvicorn）。ページ・HLS・録画・API をすべてポート 8000 で配信し、「今すぐ保存」の処理と回数制限も行う |
 | `cloudflared`（任意） | Cloudflare Quick Tunnel で `api` をインターネットに公開する |
-| `notifier`（任意） | `cloudflared` が発行した URL を Discord に通知する |
+| `notifier` | カメラの切断・復旧と、`cloudflared` が発行した URL を Discord に通知する（Webhook 未設定ならログ出力のみ） |
 
 ### ディレクトリ構成
 
@@ -59,11 +59,11 @@ cleanup ──── 保持期間を過ぎた録画を削除 ──────�
 
 前提: Docker と Docker Compose が使えるマシン（カメラと同じネットワーク内）。
 
-1. 設定ファイルを作り、4台のカメラの RTSP URL を書き換える
+1. 設定ファイルを作り、カメラの RTSP URL を書き換える
 
    ```bash
    cp .env.example .env
-   # RTSP_URL_1〜4 を自分のカメラに書き換える
+   # RTSP_URL_1〜4 を自分のカメラに書き換える（使わないカメラは空にする）
    ```
 
 2. 起動する
@@ -90,7 +90,8 @@ cleanup ──── 保持期間を過ぎた録画を削除 ──────�
 
 | 変数 | 既定値 | 説明 |
 |---|---|---|
-| `RTSP_URL_1`〜`RTSP_URL_4` | (必須) | 各カメラの RTSP URL。例: `rtsp://user:pass@192.168.1.101:554/stream1` |
+| `RTSP_URL_1`〜`RTSP_URL_4` | (なし) | 各カメラの RTSP URL。例: `rtsp://user:pass@192.168.1.101:554/stream1`。空のカメラには接続しない |
+| `HIDE_DISABLED_CAMERAS` | `true` | RTSP URL が空のカメラの表示方法。`true` = ライブ画面から外して詰める（1台: 1x1、2台: 2x1、3〜4台: 2x2）、`false` = 「未設定」パネルとして 2x2 のまま残す |
 | `VIDEO_CODEC_1`〜`VIDEO_CODEC_4` | `copy` | `copy` = 無変換（H.264 カメラ向け・低負荷）。カメラが H.265 の場合は `h264` にして再エンコード |
 | `CAMERA_1_LABEL`〜`CAMERA_4_LABEL` | `カメラ1`〜`カメラ4` | 画面に表示するカメラ名 |
 
@@ -114,12 +115,14 @@ cleanup ──── 保持期間を過ぎた録画を削除 ──────�
 | `SAVE_RATE_PER_MINUTE` | `6` | 1人の閲覧者が使える平均回数（回/分） |
 | `SAVE_BURST` | `4` | 短時間に連続で使える回数 |
 
-### インターネット公開
+### インターネット公開・通知
 
 | 変数 | 既定値 | 説明 |
 |---|---|---|
-| `COMPOSE_PROFILES` | (なし) | `tunnel` にすると `cloudflared` と `notifier` も起動する |
-| `DISCORD_WEBHOOK_URL` | (なし) | 公開 URL を通知する Discord チャンネルの Webhook URL。未設定なら通知しない |
+| `COMPOSE_PROFILES` | (なし) | `tunnel` にするとインターネット公開用の `cloudflared` も起動する |
+| `DISCORD_WEBHOOK_URL` | (なし) | 通知先の Discord チャンネルの Webhook URL（すべての通知の共通の送信先）。未設定なら通知しない |
+| `DISCORD_LINK_WEBHOOK_URL` | (`DISCORD_WEBHOOK_URL`) | 公開 URL（Web リンク）の送信先。設定すると共通の送信先の代わりにこちらへ送る |
+| `DISCORD_STATUS_WEBHOOK_URL` | (`DISCORD_WEBHOOK_URL`) | カメラの切断・復旧の送信先。設定すると共通の送信先の代わりにこちらへ送る |
 
 公開ポートは `8000` 固定です（`docker-compose.yml` の `ports` で指定）。変更したい場合は `docker-compose.yml` を直接編集してください。
 
@@ -142,21 +145,40 @@ Cloudflare のアカウント・ドメイン・ルーターのポート開放な
 - 本システムには認証機能がありません。URL を知っていれば誰でも視聴できます。
 - 録画（`/recordings/*.mp4`）はファイルサイズが大きいため、閲覧者が多いと回線帯域を消費します。
 
-### 発行された URL を Discord に通知する
+## Discord に通知する
+
+次の出来事を Discord のチャンネルに投稿します。
+
+| 出来事 | 内容 | 送信先 |
+|---|---|---|
+| カメラの切断 | ライブ配信中だったカメラが 30 秒以上映像を受信できなくなったとき | ステータス用 |
+| カメラの復旧 | 切断を通知したカメラが再び映像を受信できたとき | ステータス用 |
+| 公開 URL の発行 | `cloudflared`（`COMPOSE_PROFILES=tunnel`）が URL を発行・変更したとき。ライブ画面とアーカイブのリンクを投稿 | リンク用 |
 
 1. Discord で通知したいサーバーのチャンネルを開き、**チャンネルの編集 → 連携サービス → ウェブフック → 新しいウェブフック**
    を作成して **ウェブフック URL をコピー** する（チャンネルの管理権限が必要）
-2. `.env` に設定する
+2. `.env` に設定する。すべて同じチャンネルに送る場合は1つだけ:
 
    ```bash
-   COMPOSE_PROFILES=tunnel
    DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
    ```
 
-3. `docker compose up -d --build` で起動すると、URL が発行された時点でチャンネルにライブ画面とアーカイブのリンクが投稿される
+   リンクとステータスを別のチャンネル（別のサーバーでも可）に送る場合は、それぞれの Webhook を作成して設定する:
 
-- `cloudflared` の再起動などで URL が変わった場合も、そのたびに新しい URL が投稿されます
-  （`notifier` 自体を再起動した場合も、現在の URL をもう一度投稿します）。
+   ```bash
+   DISCORD_LINK_WEBHOOK_URL=https://discord.com/api/webhooks/...    # 公開 URL
+   DISCORD_STATUS_WEBHOOK_URL=https://discord.com/api/webhooks/...  # カメラの切断・復旧
+   ```
+
+   片方だけ設定した場合、もう片方は `DISCORD_WEBHOOK_URL` に送られます（それも未設定ならその通知は送りません）。
+
+3. `docker compose up -d --build` で起動する
+
+注意:
+
+- 起動直後に一度も接続できなかったカメラは「切断」として通知しません（一度ライブ配信が始まったカメラだけを監視します）。
+  RTSP URL が空のカメラも対象外です。
+- `notifier` を再起動すると、公開 URL をもう一度投稿します。
 - 送信状況は `docker compose logs notifier` で確認できます。送信に失敗した場合は 10 秒ごとに再送します。
 - Webhook URL を知っていれば誰でもそのチャンネルに投稿できてしまうため、`.env` を他人に共有しないでください。
 
@@ -164,7 +186,7 @@ Cloudflare のアカウント・ドメイン・ルーターのポート開放な
 
 | メソッド・パス | 説明 |
 |---|---|
-| `GET /api/status` | 各カメラの `id`・表示名 `label`・ライブ状態 `live`（HLS の更新が 30 秒以内なら `true`） |
+| `GET /api/status` | 各カメラの `id`・表示名 `label`・有効か `enabled`（RTSP URL が設定されているか）・ライブ状態 `live`（HLS の更新が 30 秒以内なら `true`）と、未設定カメラを画面から外すか `hide_disabled` |
 | `GET /api/recordings` | 録画一覧（新しい順・最大300件）。各要素は `camera_id`・`timestamp`（開始時刻 UTC `YYYYMMDDHHMMSS`）・`end_epoch`（終了時刻の目安）・`video`（ファイル名）。録画中の最新ファイルは含まない |
 | `POST /api/recordings/save?camera_id=camN` | 直近 `SAVE_CLIP_SECONDS` 秒のクリップを mp4 で返す（サーバーには保存しない）。`seconds` で短くすることも可能（最短5秒） |
 | `GET /healthz` | 死活監視用（`ok` を返す） |
@@ -178,7 +200,9 @@ Cloudflare のアカウント・ドメイン・ルーターのポート開放な
 
 - **映像が出ない**: `docker compose logs streamer1`（他は `streamer2`〜`4`）で ffmpeg のエラーを確認してください。
   カメラのコーデックが H.265 の場合は該当カメラの `VIDEO_CODEC_N=h264` を試してください。
-- **カメラが4台未満**: 使わない `RTSP_URL_N` にもダミーの URL を設定してください（該当パネルはオフライン表示のままになります）。
+- **カメラが4台未満**: 使わない `RTSP_URL_N` を空にしてください。そのカメラには接続しません。ライブ画面は既定では
+  台数に合わせて 1x1（1台）・2x1（2台）・2x2（3〜4台）で表示され、`HIDE_DISABLED_CAMERAS=false` にすると
+  2x2 のまま「未設定」パネルが表示されます。
 - **録画ファイルを直接見たい**: `docker compose exec streamer1 ls /recordings/cam1` のように各コンテナ内を参照できます。
   ファイル名は録画開始時刻（UTC）です。
 - **アーカイブに最新の録画が出ない**: 録画中のファイルは確定するまで（最大 `RECORDING_SEGMENT_SECONDS` 秒）一覧に出ません。
@@ -188,7 +212,7 @@ Cloudflare のアカウント・ドメイン・ルーターのポート開放な
 
 - HLS の特性上、実映像から数秒程度の遅延があります。
 - 音声は配信・録画しません。
-- カメラ台数は4台固定です（`cam1`〜`cam4`）。
+- カメラは最大4台です（`cam1`〜`cam4`）。
 - ライブ配信と録画で別々に RTSP 接続するため、カメラ1台あたり最大2接続になります。
 
 ## ローカル開発（Docker なし）

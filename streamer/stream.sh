@@ -1,12 +1,24 @@
 #!/bin/sh
 set -u
 
-: "${RTSP_URL:?RTSP_URL is required (set it in .env)}"
-
 # 複数カメラを同じ /hls, /recordings ボリュームに同居させるためのサブディレクトリ名
 CAMERA_NAME="${CAMERA_NAME:-cam}"
 HLS_DIR="/hls/${CAMERA_NAME}"
 REC_DIR="/recordings/${CAMERA_NAME}"
+
+# RTSP_URL が空のカメラは使わない。接続せずに待機だけする
+# （終了すると restart: unless-stopped で再起動を繰り返すため、コンテナは動かしたままにする）
+if [ -z "${RTSP_URL:-}" ]; then
+    echo "[streamer:${CAMERA_NAME}] RTSP_URL is empty. camera disabled."
+    # 以前のライブ配信が残っているとライブ中と判定されるため消しておく（録画は残す）
+    rm -rf "$HLS_DIR"
+    trap 'exit 0' INT TERM
+    while true; do
+        sleep 3600 &
+        wait $!
+    done
+fi
+
 mkdir -p "$HLS_DIR" "$REC_DIR"
 
 # copy: 無変換で低負荷・低遅延（カメラが H.264 の場合はこれで OK）
