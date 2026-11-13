@@ -51,7 +51,7 @@ cleanup ──── 保持期間を過ぎた録画を削除 ──────�
 ├── pyproject.toml, uv.lock  Python の依存関係（uv で管理）
 ├── streamer/            streamer のイメージ（stream.sh: 受信・HLS 変換・録画）
 ├── cleanup/             cleanup のイメージ（cleanup.sh: 古い録画の削除）
-├── web/                 ブラウザに配信するページ（index.html, gallery.html, style.css）
+├── web/                 ブラウザに配信するページ（index.html, gallery.html）
 └── .env.example         設定ファイルのひな形
 ```
 

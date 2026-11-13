@@ -4,12 +4,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SkyMonitor Live</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
-  <link rel="stylesheet" href="/style.css">
   <style>
+    html { color-scheme: light dark; }
     html, body { height: 100%; }
-    body { display: flex; flex-direction: column; }
+    body {
+      margin: 0 0 0 0.75em;
+      display: flex;
+      flex-direction: column;
+      font-family: Tahoma, Verdana, Arial, sans-serif;
+    }
+
+    header h1 { margin: 0.3em 0 0.1em; }
+    header .caption { margin: 0 0 0.2em; }
 
     main {
       flex: 1;
@@ -20,11 +27,15 @@
       gap: 8px;
       padding: 0 8px;
     }
-    /* 有効なカメラが少ないときはグリッドを詰める（1台: 1x1、2台: 2x1、3〜4台: 2x2） */
     main.count-1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
     main.count-2 { grid-template-rows: 1fr; }
-    /* 左列は右寄せ・右列は左寄せにして、中央の間隔を grid の gap だけにする */
-    .cell { display: flex; align-items: center; min-width: 0; min-height: 0; }
+    .cell {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      min-height: 0;
+      container-type: size;
+    }
     .cell:nth-child(odd) { justify-content: flex-end; }
     .cell:nth-child(even) { justify-content: flex-start; }
     main.count-1 .cell { justify-content: center; }
@@ -33,16 +44,16 @@
       position: relative;
       background: #000;
       overflow: hidden;
-      height: 100%;
-      max-width: 100%;
-      aspect-ratio: 16 / 9;
+      --ar: 1.7778;
+      aspect-ratio: var(--ar);
+      width: min(100cqw, 100cqh * var(--ar));
     }
     .panel video {
       width: 100%;
       height: 100%;
       object-fit: contain;
-      background: #000;
     }
+
     .badge {
       position: absolute;
       top: 6px;
@@ -52,17 +63,7 @@
       color: #fff;
       font-size: 13px;
       border-radius: 4px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
     }
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #888;
-    }
-    .dot.live { background: #2ecc71; }
 
     .save-btn {
       position: absolute;
@@ -79,8 +80,7 @@
     .save-btn:hover { background: rgba(0, 0, 0, 0.7); }
     .save-btn:disabled { cursor: default; opacity: 0.7; }
 
-    /* RTSP URL が未設定のカメラ（HIDE_DISABLED_CAMERAS=false のときだけ表示される） */
-    .panel.unused {
+    .panel.message {
       display: flex;
       align-items: center;
       justify-content: center;
@@ -88,201 +88,184 @@
       color: #6b7280;
       font-size: 14px;
     }
+    .no-camera {
+      margin: auto;
+      color: #9aa0a6;
+      font-size: 14px;
+    }
+
+    footer { padding-bottom: 0.75em; }
   </style>
 </head>
 <body>
   <header>
     <h1>山形大学小白川キャンパス 屋上スカイモニター映像</h1>
-    <p class="caption"><a class="caption-link" href="https://twos.sola.or.jp/" target="_blank" rel="noopener">TWOS</a>の一部メンバーが、火球を捉えられればいいなと思って作成・運用しています。</p>
-    <a class="nav-link" href="/gallery.html">アーカイブはこちら →</a>
+    <p class="caption"><a href="https://twos.sola.or.jp/" target="_blank" rel="noopener">TWOS</a>の一部メンバーが、火球を捉えられればいいなと思って作成・運用しています。</p>
+    <a href="/gallery.html">アーカイブ</a>
   </header>
-
-  <div id="status" class="ng">状態を確認しています…</div>
 
   <main id="grid"></main>
 
   <footer>若干の遅延が発生する場合があります。</footer>
 
   <script>
-    const STATUS_INTERVAL_MS = 10000;
+    // ===== 設定値 =====
+    // カメラ構成を取得できなかったときに、ページを読み直すまでの時間
+    const RELOAD_DELAY_MS = 10000;
+    // hls.js の致命的なエラーから復旧を試みるまでの時間
+    const NETWORK_RETRY_DELAY_MS = 1000;
+    const PLAYER_RECREATE_DELAY_MS = 3000;
+    // 保存ボタンの文字と、保存結果を表示しておく時間
+    const SAVE_LABEL = "今すぐ保存";
+    const SAVE_RESULT_DISPLAY_MS = 2500;
 
-    function createUnusedPanel(cam) {
-      const cell = document.createElement("div");
-      cell.className = "cell";
-      const panel = document.createElement("div");
-      panel.className = "panel unused";
-      panel.textContent = `${cam.label}（未設定）`;
-      cell.appendChild(panel);
-      document.getElementById("grid").appendChild(cell);
+    const grid = document.getElementById("grid");
+
+    // 要素を作るヘルパー: el("div", { className: "x" }, 子要素や文字列...)
+    function el(tag, props = {}, ...children) {
+      const node = Object.assign(document.createElement(tag), props);
+      node.append(...children);
+      return node;
     }
 
-    function createPanel(camId) {
-      const cell = document.createElement("div");
-      cell.className = "cell";
-      cell.innerHTML = `
-        <div class="panel" id="panel-${camId}">
-          <video id="video-${camId}" muted autoplay playsinline></video>
-          <div class="badge">
-            <span class="dot" id="dot-${camId}"></span>
-            <span id="label-${camId}"></span>
-          </div>
-          <button class="save-btn" id="save-${camId}">今すぐ保存</button>
-        </div>`;
-      document.getElementById("grid").appendChild(cell);
-
-      const saveBtn = document.getElementById(`save-${camId}`);
-      saveBtn.addEventListener("click", () => saveClip(camId, saveBtn));
-    }
-
-    function filenameFromResponse(res, fallback) {
-      const header = res.headers.get("Content-Disposition") || "";
-      const match = header.match(/filename="?([^";]+)"?/);
-      return match ? match[1] : fallback;
-    }
-
-    async function saveClip(camId, btn) {
-      const originalText = "今すぐ保存";
-      btn.disabled = true;
-      btn.textContent = "保存中…";
+    // ===== 起動 =====
+    async function init() {
+      // パネルの構成（カメラ ID・表示名・有効かどうか）はページを開いたときに一度だけ取得する
+      let config;
       try {
-        const res = await fetch(`/api/recordings/save?camera_id=${camId}`, { method: "POST" });
-        if (!res.ok) throw new Error("save failed");
-
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filenameFromResponse(res, `${camId}.mp4`);
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-
-        btn.textContent = "保存しました";
+        config = await fetchCameraConfig();
       } catch {
-        btn.textContent = "保存に失敗しました";
-      } finally {
-        setTimeout(() => {
-          btn.textContent = originalText;
-          btn.disabled = false;
-        }, 2500);
+        setTimeout(() => location.reload(), RELOAD_DELAY_MS);
+        return;
+      }
+
+      const { cameras, hideDisabled } = config;
+      if (!cameras.some((c) => c.enabled)) {
+        grid.className = "count-1";
+        grid.append(el("p", { className: "no-camera", textContent: "有効なカメラがありません。" }));
+        return;
+      }
+
+      // 未設定のカメラを外して詰めるか、「未設定」パネルとして元の位置に残すか（HIDE_DISABLED_CAMERAS）
+      const shown = hideDisabled ? cameras.filter((c) => c.enabled) : cameras;
+      grid.className = `count-${shown.length}`;
+      for (const cam of shown) {
+        if (cam.enabled) {
+          addCameraPanel(cam);
+        } else {
+          addMessagePanel(`${cam.label}（未設定）`);
+        }
       }
     }
 
-    function startPlayer(camId) {
-      const video = document.getElementById(`video-${camId}`);
-      const panel = document.getElementById(`panel-${camId}`);
+    async function fetchCameraConfig() {
+      const res = await fetch("/api/status");
+      if (!res.ok) throw new Error("status failed");
+      const { cameras, hide_disabled } = await res.json();
+      return { cameras, hideDisabled: hide_disabled };
+    }
+
+    // ===== パネルの作成 =====
+    function addCell(panel) {
+      grid.append(el("div", { className: "cell" }, panel));
+    }
+
+    // 映像の代わりに文字だけを出すパネル
+    function addMessagePanel(text) {
+      addCell(el("div", { className: "panel message" }, text));
+    }
+
+    function addCameraPanel(cam) {
+      // 自動再生にはミュートが必要（defaultMuted で muted 属性も付ける）
+      const video = el("video", { defaultMuted: true, muted: true, autoplay: true, playsInline: true });
+      const saveBtn = el("button", { className: "save-btn", textContent: SAVE_LABEL });
+      saveBtn.addEventListener("click", () => saveClip(cam.id, saveBtn));
+
+      const panel = el("div", { className: "panel" },
+        video,
+        el("div", { className: "badge", textContent: cam.label }),
+        saveBtn,
+      );
+      addCell(panel);
+      startPlayer(cam.id, video, panel);
+    }
+
+    // ===== 映像の再生 =====
+    function startPlayer(camId, video, panel) {
       const src = `/hls/${camId}/stream.m3u8`;
 
       // パネルを映像の実アスペクト比に合わせ、黒帯（レターボックス）をなくす
       video.addEventListener("loadedmetadata", () => {
         if (video.videoWidth && video.videoHeight) {
-          panel.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+          panel.style.setProperty("--ar", video.videoWidth / video.videoHeight);
         }
       });
 
-      function createPlayer() {
-        const hls = new Hls({
-          liveSyncDurationCount: 3,
-          maxLiveSyncPlaybackRate: 1.5,
-        });
-        hls.loadSource(src);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.ERROR, (event, data) => {
-          if (!data.fatal) return;
-          // hls.js 推奨のエラー種別ごとの復旧処理
-          // https://github.com/video-dev/hls.js/blob/master/docs/API.md#fatal-error-recovery
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              setTimeout(() => hls.startLoad(), 1000);
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              hls.recoverMediaError();
-              break;
-            default:
-              // 復旧不能なエラーはプレイヤーごと作り直す
-              hls.destroy();
-              setTimeout(createPlayer, 3000);
-              break;
-          }
-        });
-      }
-
       if (Hls.isSupported()) {
-        createPlayer();
+        createHlsPlayer(src, video);
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
         // Safari はネイティブ HLS 再生
         video.src = src;
       }
     }
 
-    async function fetchStatus() {
-      const res = await fetch("/api/status");
-      if (!res.ok) throw new Error("status failed");
-      const { cameras, hide_disabled: hideDisabled } = await res.json();
-      return { cameras, hideDisabled };
-    }
-
-    function renderStatus(allCameras) {
-      const banner = document.getElementById("status");
-      const cameras = allCameras.filter((c) => c.enabled);
-      if (cameras.length === 0) {
-        banner.className = "ng";
-        banner.textContent = "有効なカメラがありません（.env の RTSP_URL_1〜4 を設定してください）。";
-        return;
-      }
-      for (const cam of cameras) {
-        document.getElementById(`label-${cam.id}`).textContent = cam.label;
-        document.getElementById(`dot-${cam.id}`).classList.toggle("live", cam.live);
-      }
-
-      const liveCount = cameras.filter((c) => c.live).length;
-      if (liveCount > 0) {
-        banner.className = "ok";
-        banner.textContent = `配信中 — ${liveCount}/${cameras.length} 台のカメラ映像を受信しています`;
-      } else {
-        banner.className = "ng";
-        banner.textContent = "映像が受信されていません。しばらく経ってからもういちどアクセスしてください。";
-      }
-    }
-
-    function renderStatusError() {
-      const banner = document.getElementById("status");
-      banner.className = "ng";
-      banner.textContent = "状態を取得できませんでした。";
-    }
-
-    async function refreshStatus() {
-      try {
-        renderStatus((await fetchStatus()).cameras);
-      } catch {
-        renderStatusError();
-      }
-    }
-
-    async function init() {
-      // パネルの構成（ID とラベル）はステータス API から取得する
-      try {
-        const { cameras, hideDisabled } = await fetchStatus();
-        // 未設定のカメラを外して詰めるか、「未設定」パネルとして元の位置に残すか（HIDE_DISABLED_CAMERAS）
-        const shown = hideDisabled ? cameras.filter((c) => c.enabled) : cameras;
-        document.getElementById("grid").classList.add(`count-${Math.min(shown.length, 4)}`);
-        for (const cam of shown) {
-          if (cam.enabled) {
-            createPanel(cam.id);
-            startPlayer(cam.id);
-          } else {
-            createUnusedPanel(cam);
-          }
+    function createHlsPlayer(src, video) {
+      const hls = new Hls({
+        liveSyncDurationCount: 3,
+        maxLiveSyncPlaybackRate: 1.5,
+      });
+      hls.loadSource(src);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (!data.fatal) return;
+        // hls.js 推奨のエラー種別ごとの復旧処理
+        // https://github.com/video-dev/hls.js/blob/master/docs/API.md#fatal-error-recovery
+        switch (data.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            setTimeout(() => hls.startLoad(), NETWORK_RETRY_DELAY_MS);
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            hls.recoverMediaError();
+            break;
+          default:
+            // 復旧不能なエラーはプレイヤーごと作り直す
+            hls.destroy();
+            setTimeout(() => createHlsPlayer(src, video), PLAYER_RECREATE_DELAY_MS);
         }
-        renderStatus(cameras);
+      });
+    }
+
+    // ===== 映像の保存 =====
+    async function saveClip(camId, btn) {
+      btn.disabled = true;
+      btn.textContent = "保存中…";
+      try {
+        const res = await fetch(`/api/recordings/save?camera_id=${camId}`, { method: "POST" });
+        if (!res.ok) throw new Error("save failed");
+        downloadBlob(await res.blob(), filenameFromResponse(res, `${camId}.mp4`));
+        btn.textContent = "保存しました";
       } catch {
-        renderStatusError();
-        // パネルを作れないので、少し待ってページごと読み直す
-        setTimeout(() => location.reload(), STATUS_INTERVAL_MS);
-        return;
+        btn.textContent = "保存に失敗しました";
+      } finally {
+        setTimeout(() => {
+          btn.textContent = SAVE_LABEL;
+          btn.disabled = false;
+        }, SAVE_RESULT_DISPLAY_MS);
       }
-      setInterval(refreshStatus, STATUS_INTERVAL_MS);
+    }
+
+    // サーバーが Content-Disposition で付けたファイル名を取り出す（なければ fallback）
+    function filenameFromResponse(res, fallback) {
+      const header = res.headers.get("Content-Disposition") || "";
+      const match = header.match(/filename="?([^";]+)"?/);
+      return match ? match[1] : fallback;
+    }
+
+    // 受け取ったデータをファイルとしてダウンロードさせる
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      el("a", { href: url, download: filename }).click();
+      URL.revokeObjectURL(url);
     }
 
     init();

@@ -4,107 +4,106 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SkyMonitor アーカイブ</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
-  <link rel="stylesheet" href="/style.css">
   <style>
-    html, body { min-height: 100%; }
-
-    .day-group { margin-bottom: 8px; }
-    .day-heading {
-      margin: 20px 16px 8px;
-      padding-bottom: 4px;
-      font-size: 15px;
-      font-weight: 600;
-      color: #e2e8f0;
-      border-bottom: 1px solid #262b33;
+    html { color-scheme: light dark; }
+    body {
+      margin: 0 0.75em;
+      font-family: Tahoma, Verdana, Arial, sans-serif;
     }
 
-    .hour-group { margin: 4px 16px; }
-    .hour-group summary.hour-heading {
+    header h1 { margin: 0.3em 0 0.1em; }
+    header .caption { margin: 0 0 0.2em; }
+
+    #status {
+      margin: 0.5em 0;
+      padding: 0.5em 0.75em;
+      border-radius: 4px;
+      background: rgba(128, 128, 128, 0.15);
+    }
+
+    .day-heading {
+      margin: 1em 0 0.3em;
+      padding-bottom: 0.2em;
+      font-size: 1.2em;
+      border-bottom: 1px solid rgba(128, 128, 128, 0.4);
+    }
+
+    .hour-heading {
       cursor: pointer;
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 6px 4px;
-      font-size: 13px;
-      font-weight: 600;
-      color: #cbd5e1;
+      padding: 4px;
+      font-weight: bold;
       list-style: none;
-      border-radius: 6px;
+      border-radius: 4px;
     }
-    .hour-group summary.hour-heading::-webkit-details-marker { display: none; }
-    .hour-group summary.hour-heading::before {
+    .hour-heading::-webkit-details-marker { display: none; }
+    .hour-heading::before {
       content: "▶";
-      font-size: 10px;
-      color: #7dd3fc;
+      font-size: 0.7em;
       transition: transform 0.15s ease;
     }
-    .hour-group[open] summary.hour-heading::before { transform: rotate(90deg); }
-    .hour-group summary.hour-heading:hover { background: rgba(255, 255, 255, 0.05); }
+    .hour-group[open] .hour-heading::before { transform: rotate(90deg); }
+    .hour-heading:hover { background: rgba(128, 128, 128, 0.12); }
 
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 12px;
+      gap: 8px;
       padding: 4px 0 12px;
     }
-
     .card {
-      background: #171b22;
-      border-radius: 8px;
+      border: 1px solid rgba(128, 128, 128, 0.4);
+      border-radius: 4px;
       overflow: hidden;
-      border: 1px solid #262b33;
     }
-    .card .media {
+    .media {
       position: relative;
       aspect-ratio: 16 / 9;
       background: #000;
       cursor: pointer;
     }
-    .card .media video {
+    .media video {
       width: 100%;
       height: 100%;
       object-fit: contain;
       display: block;
     }
-    .card .play-badge {
+    .play-badge {
       position: absolute;
       inset: 0;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 32px;
+      color: #fff;
       background: rgba(0, 0, 0, 0.2);
       pointer-events: none;
     }
-    .card .meta {
-      padding: 8px 10px;
+    .meta {
+      padding: 6px 8px;
       font-size: 13px;
       display: flex;
       flex-direction: column;
       gap: 2px;
-      color: #cbd5e1;
     }
-    .card .meta .cam-label { font-weight: 600; color: #fafafa; }
-    .card .meta .time-range { font-variant-numeric: tabular-nums; }
+    .cam-label { font-weight: bold; }
+    .time-range { font-variant-numeric: tabular-nums; }
 
-    #empty {
-      margin: 24px 16px;
-      color: #9aa0a6;
-      font-size: 14px;
-    }
+    #empty { margin: 1em 0; }
 
-    footer { padding-bottom: 16px; }
+    footer { padding-bottom: 0.75em; }
   </style>
 </head>
 <body>
   <header>
     <h1>アーカイブ</h1>
     <p class="caption">各カメラで録画された映像一覧です（新しい順）。各映像は定期的に保存されます。最新の映像のアーカイブには少し時間がかかる場合があります。</p>
-    <a class="nav-link" href="/">← ライブ映像に戻る</a>
+    <a href="/">ライブ映像に戻る</a>
   </header>
 
-  <div id="status" class="info">読み込み中…</div>
+  <div id="status">読み込み中…</div>
 
   <div id="list"></div>
   <p id="empty" hidden>まだ録画がありません。</p>
@@ -112,30 +111,51 @@
   <footer>一定期間を過ぎた録画は自動的に削除されます。</footer>
 
   <script>
-    function toJstParts(date) {
-      const parts = new Intl.DateTimeFormat("ja-JP", {
-        timeZone: "Asia/Tokyo",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        weekday: "short",
-        hour12: false,
-      }).formatToParts(date);
-      const get = (type) => parts.find((p) => p.type === type).value;
-      return {
-        year: get("year"),
-        month: get("month"),
-        day: get("day"),
-        hour: get("hour"),
-        minute: get("minute"),
-        second: get("second"),
-        weekday: get("weekday"),
-      };
+    // ===== 設定値 =====
+    // 時刻を日本時間の年・月・日・時・分・秒・曜日に分けるための書式
+    const JST_FORMAT = new Intl.DateTimeFormat("ja-JP", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      weekday: "short",
+      hour12: false,
+    });
+
+    // 要素を作るヘルパー: el("div", { className: "x" }, 子要素や文字列...)
+    function el(tag, props = {}, ...children) {
+      const node = Object.assign(document.createElement(tag), props);
+      node.append(...children);
+      return node;
     }
 
+    // ===== 起動 =====
+    async function init() {
+      const banner = document.getElementById("status");
+      try {
+        const [statusRes, recRes] = await Promise.all([
+          fetch("/api/status"),
+          fetch("/api/recordings"),
+        ]);
+        const { cameras } = await statusRes.json();
+        const { events: recordings } = await recRes.json();
+
+        if (recordings.length === 0) {
+          document.getElementById("empty").hidden = false;
+        } else {
+          const labelMap = Object.fromEntries(cameras.map((c) => [c.id, c.label]));
+          renderRecordings(recordings, labelMap, document.getElementById("list"));
+        }
+      } finally {
+        // 取得に失敗したときも「読み込み中…」は消す（エラーの内容はブラウザのコンソールに出る）
+        banner.hidden = true;
+      }
+    }
+
+    // ===== 時刻の扱い =====
     function parseStartDate(ts) {
       // ファイル名のタイムスタンプ (yyyymmddhhmmss) は録画コンテナの時刻(UTC)
       return new Date(Date.UTC(
@@ -148,8 +168,9 @@
       ));
     }
 
-    function dateKey(parts) {
-      return `${parts.year}-${parts.month}-${parts.day}`;
+    // { year, month, day, hour, minute, second, weekday } の形で返す
+    function toJstParts(date) {
+      return Object.fromEntries(JST_FORMAT.formatToParts(date).map((p) => [p.type, p.value]));
     }
 
     function dateLabel(parts) {
@@ -160,147 +181,75 @@
       return `${parts.hour}:${parts.minute}:${parts.second}`;
     }
 
-    function hourLabel(parts) {
-      return `${parts.hour}時台`;
+    // ===== 一覧の表示 =====
+    // keyOf が同じ値を返すものを、出てきた順のまま Map にまとめる
+    function groupBy(items, keyOf) {
+      const groups = new Map();
+      for (const item of items) {
+        const key = keyOf(item);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(item);
+      }
+      return groups;
     }
 
-    function groupByDate(recordings) {
-      const groups = new Map();
+    // 日付ごと → 時間帯ごとにまとめて表示する（日本時間で区切る）
+    function renderRecordings(recordings, labelMap, container) {
       for (const recording of recordings) {
         recording.start = parseStartDate(recording.timestamp);
         recording.end = recording.end_epoch != null
           ? new Date(recording.end_epoch * 1000)
           : recording.start;
-
-        const key = dateKey(toJstParts(recording.start));
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(recording);
+        recording.startParts = toJstParts(recording.start);
       }
-      return groups;
-    }
 
-    function groupByHour(items) {
-      const groups = new Map();
-      for (const recording of items) {
-        const key = toJstParts(recording.start).hour;
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(recording);
-      }
-      return groups;
-    }
-
-    function createSpan(className, text) {
-      const span = document.createElement("span");
-      span.className = className;
-      span.textContent = text;
-      return span;
-    }
-
-    function createCard(recording, labelMap) {
-      const card = document.createElement("div");
-      card.className = "card";
-
-      const media = document.createElement("div");
-      media.className = "media";
-      media.addEventListener("click", () => playVideo(media, recording), { once: true });
-
-      const badge = document.createElement("div");
-      badge.className = "play-badge";
-      badge.textContent = "▶";
-      media.appendChild(badge);
-
-      const start = timeLabel(toJstParts(recording.start));
-      const end = timeLabel(toJstParts(recording.end));
-
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      meta.append(
-        createSpan("cam-label", labelMap[recording.camera_id] || recording.camera_id),
-        createSpan("time-range", `${start} 〜 ${end}`),
-      );
-
-      card.appendChild(media);
-      card.appendChild(meta);
-      return card;
-    }
-
-    function renderGroups(groups, labelMap, container) {
+      const days = groupBy(recordings, (r) => `${r.startParts.year}-${r.startParts.month}-${r.startParts.day}`);
       let isFirstHourGroup = true;
+      for (const dayItems of days.values()) {
+        const section = el("section", {},
+          el("h2", { className: "day-heading", textContent: dateLabel(dayItems[0].startParts) }),
+        );
 
-      for (const items of groups.values()) {
-        const section = document.createElement("section");
-        section.className = "day-group";
-
-        const heading = document.createElement("h2");
-        heading.className = "day-heading";
-        heading.textContent = dateLabel(toJstParts(items[0].start));
-        section.appendChild(heading);
-
-        const hourGroups = groupByHour(items);
-        for (const hourItems of hourGroups.values()) {
-          const details = document.createElement("details");
-          details.className = "hour-group";
+        for (const hourItems of groupBy(dayItems, (r) => r.startParts.hour).values()) {
+          const details = el("details", { className: "hour-group" },
+            el("summary", { className: "hour-heading", textContent: `${hourItems[0].startParts.hour}時台` }),
+            el("div", { className: "grid" }, ...hourItems.map((r) => createCard(r, labelMap))),
+          );
           // 直近の時間帯だけ最初から開いておく
           details.open = isFirstHourGroup;
           isFirstHourGroup = false;
-
-          const summary = document.createElement("summary");
-          summary.className = "hour-heading";
-          summary.textContent = hourLabel(toJstParts(hourItems[0].start));
-          details.appendChild(summary);
-
-          const grid = document.createElement("div");
-          grid.className = "grid";
-          for (const recording of hourItems) {
-            grid.appendChild(createCard(recording, labelMap));
-          }
-          details.appendChild(grid);
-
-          section.appendChild(details);
+          section.append(details);
         }
 
-        container.appendChild(section);
+        container.append(section);
       }
     }
 
+    function createCard(recording, labelMap) {
+      const media = el("div", { className: "media" },
+        el("div", { className: "play-badge", textContent: "▶" }),
+      );
+      media.addEventListener("click", () => playVideo(media, recording), { once: true });
+
+      const start = timeLabel(recording.startParts);
+      const end = timeLabel(toJstParts(recording.end));
+      return el("div", { className: "card" },
+        media,
+        el("div", { className: "meta" },
+          el("span", { className: "cam-label", textContent: labelMap[recording.camera_id] || recording.camera_id }),
+          el("span", { className: "time-range", textContent: `${start} 〜 ${end}` }),
+        ),
+      );
+    }
+
+    // ===== 映像の再生 =====
+    // 「▶」の表示を、その録画の映像に置き換えて再生する
     function playVideo(media, recording) {
-      media.innerHTML = "";
-      const video = document.createElement("video");
-      video.src = `/recordings/${recording.camera_id}/${recording.video}`;
-      video.controls = true;
-      video.autoplay = true;
-      media.appendChild(video);
-    }
-
-    async function init() {
-      const banner = document.getElementById("status");
-      const list = document.getElementById("list");
-      const empty = document.getElementById("empty");
-
-      try {
-        const [statusRes, recRes] = await Promise.all([
-          fetch("/api/status"),
-          fetch("/api/recordings"),
-        ]);
-        const { cameras } = await statusRes.json();
-        const { events: recordings } = await recRes.json();
-
-        const labelMap = Object.fromEntries(cameras.map((c) => [c.id, c.label]));
-
-        if (recordings.length === 0) {
-          banner.hidden = true;
-          empty.hidden = false;
-          return;
-        }
-
-        const groups = groupByDate(recordings);
-        renderGroups(groups, labelMap, list);
-
-        banner.hidden = true;
-      } catch {
-        banner.className = "ng";
-        banner.textContent = "録画一覧を取得できませんでした。";
-      }
+      media.replaceChildren(el("video", {
+        src: `/recordings/${recording.camera_id}/${recording.video}`,
+        controls: true,
+        autoplay: true,
+      }));
     }
 
     init();
