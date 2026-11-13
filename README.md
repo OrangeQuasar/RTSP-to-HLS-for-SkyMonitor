@@ -91,7 +91,7 @@ cleanup ──── 保持期間を過ぎた録画を削除 ──────�
 | 変数 | 既定値 | 説明 |
 |---|---|---|
 | `RTSP_URL_1`〜`RTSP_URL_4` | (なし) | 各カメラの RTSP URL。例: `rtsp://user:pass@192.168.1.101:554/stream1`。空のカメラには接続しない |
-| `HIDE_DISABLED_CAMERAS` | `true` | RTSP URL が空のカメラの表示方法。`true` = ライブ画面から外して詰める（1台: 1x1、2台: 2x1、3〜4台: 2x2）、`false` = 「未設定」パネルとして 2x2 のまま残す |
+| `HIDE_DISABLED_CAMERAS` | `true` | RTSP URL が空のカメラの表示方法。`true` = ライブ画面から外して詰める（1台: 1x1、2台: 2x1、3〜4台: 2x2）、`false` = グレーの印の黒いパネルとして 2x2 のまま残す |
 | `VIDEO_CODEC_1`〜`VIDEO_CODEC_4` | `copy` | `copy` = 無変換（H.264 カメラ向け・低負荷）。カメラが H.265 の場合は `h264` にして再エンコード |
 | `CAMERA_1_LABEL`〜`CAMERA_4_LABEL` | `カメラ1`〜`カメラ4` | 画面に表示するカメラ名 |
 
@@ -189,6 +189,7 @@ Cloudflare のアカウント・ドメイン・ルーターのポート開放な
 | `GET /api/status` | 各カメラの `id`・表示名 `label`・有効か `enabled`（RTSP URL が設定されているか）・ライブ状態 `live`（HLS の更新が 30 秒以内なら `true`）と、未設定カメラを画面から外すか `hide_disabled` |
 | `GET /api/recordings` | 録画一覧（新しい順・最大300件）。各要素は `camera_id`・`timestamp`（開始時刻 UTC `YYYYMMDDHHMMSS`）・`end_epoch`（終了時刻の目安）・`video`（ファイル名）。録画中の最新ファイルは含まない |
 | `POST /api/recordings/save?camera_id=camN` | 直近 `SAVE_CLIP_SECONDS` 秒のクリップを mp4 で返す（サーバーには保存しない）。`seconds` で短くすることも可能（最短5秒） |
+| `POST /api/cameras/camN/reconnect` | そのカメラへの接続をやり直すよう streamer に依頼する（ライブ画面の「再接続」ボタン）。共有ボリューム `control` に依頼ファイルを置き、streamer が次の監視ループ（10 秒ごと）で ffmpeg を起動し直す。閲覧者ごとに 2 回/分まで |
 | `GET /healthz` | 死活監視用（`ok` を返す） |
 
 「今すぐ保存」はリクエストごとに ffmpeg を起動するため、閲覧者ごとに回数を制限しています。超えると `429` と
@@ -202,7 +203,7 @@ Cloudflare のアカウント・ドメイン・ルーターのポート開放な
   カメラのコーデックが H.265 の場合は該当カメラの `VIDEO_CODEC_N=h264` を試してください。
 - **カメラが4台未満**: 使わない `RTSP_URL_N` を空にしてください。そのカメラには接続しません。ライブ画面は既定では
   台数に合わせて 1x1（1台）・2x1（2台）・2x2（3〜4台）で表示され、`HIDE_DISABLED_CAMERAS=false` にすると
-  2x2 のまま「未設定」パネルが表示されます。
+  2x2 のまま未設定のカメラのパネル（グレーの印）が表示されます。
 - **録画ファイルを直接見たい**: `docker compose exec streamer1 ls /recordings/cam1` のように各コンテナ内を参照できます。
   ファイル名は録画開始時刻（UTC）です。
 - **アーカイブに最新の録画が出ない**: 録画中のファイルは確定するまで（最大 `RECORDING_SEGMENT_SECONDS` 秒）一覧に出ません。

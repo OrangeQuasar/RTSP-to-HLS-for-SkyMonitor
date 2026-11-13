@@ -5,6 +5,8 @@ set -u
 CAMERA_NAME="${CAMERA_NAME:-cam}"
 HLS_DIR="/hls/${CAMERA_NAME}"
 REC_DIR="/recordings/${CAMERA_NAME}"
+# ライブ画面の「再接続」ボタンで api が作るファイル。見つけたら消して ffmpeg を起動し直す
+RECONNECT_FILE="/control/${CAMERA_NAME}.reconnect"
 
 # RTSP_URL が空のカメラは使わない。接続せずに待機だけする
 # （終了すると restart: unless-stopped で再起動を繰り返すため、コンテナは動かしたままにする）
@@ -135,6 +137,15 @@ trap shutdown INT TERM
 start_hls
 
 while true; do
+    if [ -f "$RECONNECT_FILE" ]; then
+        rm -f "$RECONNECT_FILE"
+        log "reconnect requested. restarting ffmpeg..."
+        stop_process "$HLS_PID"
+        start_hls
+        # 録画側も同じカメラに接続しているので、止めておけば下で起動し直される
+        stop_process "$REC_PID"
+    fi
+
     if ! is_running "$HLS_PID"; then
         log "HLS ffmpeg exited. restarting in ${HLS_RESTART_DELAY_SECONDS}s..."
         sleep "$HLS_RESTART_DELAY_SECONDS"

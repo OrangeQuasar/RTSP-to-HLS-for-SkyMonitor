@@ -58,14 +58,26 @@
       position: absolute;
       top: 6px;
       left: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
       padding: 2px 8px;
       background: rgba(0, 0, 0, 0.5);
       color: #fff;
       font-size: 13px;
       border-radius: 4px;
     }
+    /* 接続状態の印: 接続中は緑、切断は赤、未設定はグレー */
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #9ca3af;
+    }
+    .panel[data-state="live"] .dot { background: #22c55e; }
+    .panel[data-state="down"] .dot { background: #ef4444; }
 
-    .save-btn {
+    .panel-btn {
       position: absolute;
       top: 6px;
       right: 8px;
@@ -77,17 +89,11 @@
       font-size: 12px;
       cursor: pointer;
     }
-    .save-btn:hover { background: rgba(0, 0, 0, 0.7); }
-    .save-btn:disabled { cursor: default; opacity: 0.7; }
-
-    .panel.message {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #0f1a2e;
-      color: #6b7280;
-      font-size: 14px;
-    }
+    .panel-btn:hover { background: rgba(0, 0, 0, 0.7); }
+    .panel-btn:disabled { cursor: default; opacity: 0.7; }
+    /* 保存ボタンは接続中だけ、再接続ボタンは切断中だけ出す */
+    .panel:not([data-state="live"]) .save-btn,
+    .panel:not([data-state="down"]) .reconnect-btn { display: none; }
     .no-camera {
       margin: auto;
       color: #9aa0a6;
@@ -112,14 +118,21 @@
     // ===== 設定値 =====
     // カメラ構成を取得できなかったときに、ページを読み直すまでの時間
     const RELOAD_DELAY_MS = 10000;
+    // 接続状態（緑・赤・グレーの印）を確認し直す間隔
+    const STATUS_POLL_MS = 10000;
     // hls.js の致命的なエラーから復旧を試みるまでの時間
     const NETWORK_RETRY_DELAY_MS = 1000;
     const PLAYER_RECREATE_DELAY_MS = 3000;
     // 保存ボタンの文字と、保存結果を表示しておく時間
     const SAVE_LABEL = "今すぐ保存";
     const SAVE_RESULT_DISPLAY_MS = 2500;
+    // 再接続ボタンの文字と、押してから再び押せるようになるまでの時間
+    const RECONNECT_LABEL = "再接続";
+    const RECONNECT_WAIT_MS = 30000;
 
     const grid = document.getElementById("grid");
+    // カメラ ID → { panel, player }（表示中のパネルだけ）
+    const panels = new Map();
 
     // 要素を作るヘルパー: el("div", { className: "x" }, 子要素や文字列...)
     function el(tag, props = {}, ...children) {
@@ -146,16 +159,14 @@
         return;
       }
 
-      // 未設定のカメラを外して詰めるか、「未設定」パネルとして元の位置に残すか（HIDE_DISABLED_CAMERAS）
+      // 未設定のカメラを外して詰めるか、グレーの印のパネルとして元の位置に残すか（HIDE_DISABLED_CAMERAS）
       const shown = hideDisabled ? cameras.filter((c) => c.enabled) : cameras;
       grid.className = `count-${shown.length}`;
       for (const cam of shown) {
-        if (cam.enabled) {
-          addCameraPanel(cam);
-        } else {
-          addMessagePanel(`${cam.label}（未設定）`);
-        }
+        addCameraPanel(cam);
       }
+      applyStatus(cameras);
+      setInterval(refreshStatus, STATUS_POLL_MS);
     }
 
     async function fetchCameraConfig() {
@@ -165,32 +176,55 @@
       return { cameras, hideDisabled: hide_disabled };
     }
 
+    // ===== 接続状態 =====
+    async function refreshStatus() {
+      try {
+        applyStatus((await fetchCameraConfig()).cameras);
+      } catch {
+        // 取得に失敗したときは印を変えずに次の確認を待つ
+      }
+    }
+
+    // live: 接続中（緑）、down: 切断（赤）、off: 未設定（グレー）
+    function applyStatus(cameras) {
+      for (const cam of cameras) {
+        const entry = panels.get(cam.id);
+        if (!entry) continue;
+        const state = !cam.enabled ? "off" : cam.live ? "live" : "down";
+        const prev = entry.panel.dataset.state;
+        entry.panel.dataset.state = state;
+        // 切断から戻ったときは、配信が作り直されているのでプレイヤーも読み込み直す
+        if (state === "live" && prev && prev !== "live") entry.player?.restart();
+      }
+    }
+
     // ===== パネルの作成 =====
-    function addCell(panel) {
-      grid.append(el("div", { className: "cell" }, panel));
-    }
-
-    // 映像の代わりに文字だけを出すパネル
-    function addMessagePanel(text) {
-      addCell(el("div", { className: "panel message" }, text));
-    }
-
     function addCameraPanel(cam) {
+      const panel = el("div", { className: "panel" },
+        el("div", { className: "badge" }, el("span", { className: "dot" }), cam.label),
+      );
+      grid.append(el("div", { className: "cell" }, panel));
+
+      // 未設定のカメラは黒いパネルにカメラ名とグレーの印だけを出す
+      if (!cam.enabled) {
+        panels.set(cam.id, { panel, player: null });
+        return;
+      }
+
       // 自動再生にはミュートが必要（defaultMuted で muted 属性も付ける）
       const video = el("video", { defaultMuted: true, muted: true, autoplay: true, playsInline: true });
-      const saveBtn = el("button", { className: "save-btn", textContent: SAVE_LABEL });
+      const saveBtn = el("button", { className: "panel-btn save-btn", textContent: SAVE_LABEL });
       saveBtn.addEventListener("click", () => saveClip(cam.id, saveBtn));
+      const reconnectBtn = el("button", { className: "panel-btn reconnect-btn", textContent: RECONNECT_LABEL });
+      reconnectBtn.addEventListener("click", () => requestReconnect(cam.id, reconnectBtn));
 
-      const panel = el("div", { className: "panel" },
-        video,
-        el("div", { className: "badge", textContent: cam.label }),
-        saveBtn,
-      );
-      addCell(panel);
-      startPlayer(cam.id, video, panel);
+      panel.prepend(video);
+      panel.append(saveBtn, reconnectBtn);
+      panels.set(cam.id, { panel, player: startPlayer(cam.id, video, panel) });
     }
 
     // ===== 映像の再生 =====
+    // 再生を始め、読み込み直すための restart() を返す
     function startPlayer(camId, video, panel) {
       const src = `/hls/${camId}/stream.m3u8`;
 
@@ -201,15 +235,22 @@
         }
       });
 
-      if (Hls.isSupported()) {
-        createHlsPlayer(src, video);
-      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        // Safari はネイティブ HLS 再生
-        video.src = src;
+      let hls = null;
+      function start() {
+        if (Hls.isSupported()) {
+          hls?.destroy();
+          hls = createHlsPlayer(src, video, start);
+        } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+          // Safari はネイティブ HLS 再生
+          video.src = src;
+        }
       }
+      start();
+      return { restart: start };
     }
 
-    function createHlsPlayer(src, video) {
+    // recreate: 復旧できないエラーのときにプレイヤーを作り直す関数
+    function createHlsPlayer(src, video, recreate) {
       const hls = new Hls({
         liveSyncDurationCount: 3,
         maxLiveSyncPlaybackRate: 1.5,
@@ -228,11 +269,29 @@
             hls.recoverMediaError();
             break;
           default:
-            // 復旧不能なエラーはプレイヤーごと作り直す
-            hls.destroy();
-            setTimeout(() => createHlsPlayer(src, video), PLAYER_RECREATE_DELAY_MS);
+            setTimeout(recreate, PLAYER_RECREATE_DELAY_MS);
         }
       });
+      return hls;
+    }
+
+    // ===== 再接続 =====
+    // サーバーにカメラへの接続のやり直しを頼む（実際につながると、次の状態確認で緑に戻る）
+    async function requestReconnect(camId, btn) {
+      btn.disabled = true;
+      let waitMs = RECONNECT_WAIT_MS;
+      try {
+        const res = await fetch(`/api/cameras/${camId}/reconnect`, { method: "POST" });
+        if (!res.ok) throw new Error("reconnect failed");
+        btn.textContent = "再接続中…";
+      } catch {
+        btn.textContent = "再接続に失敗しました";
+        waitMs = SAVE_RESULT_DISPLAY_MS;
+      }
+      setTimeout(() => {
+        btn.textContent = RECONNECT_LABEL;
+        btn.disabled = false;
+      }, waitMs);
     }
 
     // ===== 映像の保存 =====

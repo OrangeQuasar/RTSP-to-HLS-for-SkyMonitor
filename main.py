@@ -16,6 +16,8 @@ from starlette.background import BackgroundTask
 
 HLS_ROOT = Path(os.environ.get("HLS_ROOT", "/hls"))
 RECORDINGS_ROOT = Path(os.environ.get("RECORDINGS_ROOT", "/recordings"))
+# 再接続の依頼を streamer に渡すためのディレクトリ（streamer と共有するボリューム）
+CONTROL_ROOT = Path(os.environ.get("CONTROL_ROOT", "/control"))
 WEB_ROOT = Path(os.environ.get("WEB_ROOT", Path(__file__).parent / "web"))
 PLAYLIST_NAME = "stream.m3u8"
 
@@ -36,6 +38,10 @@ MIN_CLIP_SECONDS = 5.0
 # 平均 SAVE_RATE_PER_MINUTE 回/分、瞬間的には SAVE_BURST 回まで連続で受け付ける
 SAVE_RATE_PER_MINUTE = float(os.environ.get("SAVE_RATE_PER_MINUTE", "6"))
 SAVE_BURST = int(os.environ.get("SAVE_BURST", "4"))
+
+# 「再接続」も公開ページから押せるため、閲覧者ごとに回数を制限する（平均 2 回/分、連続 2 回まで）
+RECONNECT_RATE_PER_MINUTE = 2
+RECONNECT_BURST = 2
 
 # Cloudflare Tunnel 経由では接続元が常に cloudflared コンテナになるため、
 # 接続元がこのホストのときに限り CF-Connecting-IP を本来の閲覧者として扱う
@@ -81,6 +87,7 @@ class RateLimiter:
 
 
 save_limiter = RateLimiter(SAVE_RATE_PER_MINUTE, SAVE_BURST)
+reconnect_limiter = RateLimiter(RECONNECT_RATE_PER_MINUTE, RECONNECT_BURST)
 
 
 def trusted_proxy_ip() -> str | None:
@@ -261,6 +268,22 @@ def save_clip(
         filename=f"{camera_id}_{ts}.mp4",
         background=BackgroundTask(tmp_path.unlink, missing_ok=True),
     )
+
+
+@app.post("/api/cameras/{camera_id}/reconnect")
+def reconnect(request: Request, camera_id: str) -> dict:
+    if camera_id not in enabled_camera_ids():
+        raise HTTPException(status_code=404, detail="unknown camera_id")
+    if retry_after := reconnect_limiter.acquire(client_key(request)):
+        raise HTTPException(
+            status_code=429,
+            detail="too many requests",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
+    # streamer は監視ループのたびにこのファイルを確認し、見つけたら消して ffmpeg を起動し直す
+    CONTROL_ROOT.mkdir(parents=True, exist_ok=True)
+    (CONTROL_ROOT / f"{camera_id}.reconnect").touch()
+    return {"requested": True}
 
 
 @app.get("/healthz", response_class=PlainTextResponse)

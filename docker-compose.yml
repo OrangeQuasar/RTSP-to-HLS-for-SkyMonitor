@@ -6,6 +6,7 @@ x-streamer: &streamer
   volumes:
     - hls:/hls
     - recordings:/recordings
+    - control:/control
 
 x-streamer-env: &streamer-env
   RECORDING_SEGMENT_SECONDS: ${RECORDING_SEGMENT_SECONDS:-600}
@@ -82,6 +83,8 @@ services:
       - ./web:/app/web:ro
       - hls:/hls:ro
       - recordings:/recordings:ro
+      # ライブ画面の「再接続」ボタンの依頼を streamer に渡す
+      - control:/control
 
   # Cloudflare Quick Tunnel でインターネットに公開する（任意・アカウント不要）
   # .env に COMPOSE_PROFILES=tunnel を設定すると起動し、https://xxxx.trycloudflare.com の URL が発行される
@@ -112,3 +115,4 @@ services:
 volumes:
   hls:
   recordings:
+  control:
