@@ -9,6 +9,7 @@ Web ブラウザで 2x2 グリッドのリアルタイム視聴ができるよ�
 - **ライブ視聴**（`/`）: 4台のカメラ映像を 2x2 で同時表示。各カメラの受信状態を 10 秒ごとに更新
 - **今すぐ保存**: ライブ画面のボタンから、直近のクリップ（既定30秒）を mp4 でダウンロード
 - **アーカイブ**（`/gallery.html`）: 録画を日付・時間帯ごとに一覧表示し、クリックで再生（日本時間表示）
+- **流星の自動検出**: [meteor-detect](meteor-detect/README.md) で夜間の映像から流星を検出し、アーカイブの「流星」タブに日ごとにまとめて表示（比較明合成画像と動画）
 - **常時録画・夜間のみ録画**: 既定10分ごとの mp4 として保存。指定した時間帯だけ録画することも可能
 - **古い録画の自動削除**: 保持期間（既定3日）を過ぎた録画を自動で削除
 - **インターネット公開**（任意）: Cloudflare Quick Tunnel で、アカウント・ポート開放なしで公開
@@ -35,7 +36,8 @@ cleanup ──── 保持期間を過ぎた録画を削除 ──────�
 | サービス | 役割 |
 |---|---|
 | `streamer1`〜`streamer4` | カメラ1台ごとに ffmpeg で RTSP を受信し、ライブ配信用の HLS と録画用の mp4 を書き出す。ffmpeg が落ちても自動で再起動する。RTSP URL が空のカメラには接続せず待機する |
-| `cleanup` | 保持期間を過ぎた録画ファイルを定期的に削除する |
+| `detector1`〜`detector4` | カメラ1台ごとに meteor-detect（`atomcam.py`）で夜間の RTSP 映像から流星を検出し、比較明合成画像と動画（H.264 に変換）を書き出す。RTSP URL が空のカメラ、`METEOR_DETECT=false` のときは待機する |
+| `cleanup` | 保持期間を過ぎた録画ファイル・流星の検出結果を定期的に削除する |
 | `api` | FastAPI（uvicorn）。ページ・HLS・録画・API をすべてポート 8000 で配信し、「今すぐ保存」の処理と回数制限も行う |
 | `cloudflared`（任意） | Cloudflare Quick Tunnel で `api` をインターネットに公開する |
 | `notifier` | カメラの切断・復旧と、`cloudflared` が発行した URL を Discord に通知する（Webhook 未設定ならログ出力のみ） |
@@ -50,7 +52,9 @@ cleanup ──── 保持期間を過ぎた録画を削除 ──────�
 ├── notify_discord.py    notifier
 ├── pyproject.toml, uv.lock  Python の依存関係（uv で管理）
 ├── streamer/            streamer のイメージ（stream.sh: 受信・HLS 変換・録画）
-├── cleanup/             cleanup のイメージ（cleanup.sh: 古い録画の削除）
+├── cleanup/             cleanup のイメージ（cleanup.sh: 古い録画・検出結果の削除）
+├── detector/            detector のイメージ（run.py: meteor-detect を夜間だけ動かす）
+├── meteor-detect/       流星検出プログラム（atomcam.py。detector から変更せずに使う）
 ├── web/                 ブラウザに配信するページ（index.html, gallery.html）
 └── .env.example         設定ファイルのひな形
 ```
@@ -82,7 +86,7 @@ cleanup ──── 保持期間を過ぎた録画を削除 ──────�
 |---|---|
 | `.env` | `docker compose up -d`（変更のあったサービスが作り直される） |
 | `web/` 内のファイル | ブラウザを再読み込みするだけ（マウントしているため再起動不要） |
-| `main.py` / `notify_discord.py` / `streamer/` / `cleanup/` | `docker compose up -d --build` |
+| `main.py` / `notify_discord.py` / `streamer/` / `cleanup/` / `detector/` / `meteor-detect/` | `docker compose up -d --build` |
 
 ## 設定 (.env)
 
@@ -106,6 +110,19 @@ cleanup ──── 保持期間を過ぎた録画を削除 ──────�
 | `RECORDING_START_HOUR` | `18` | 録画を開始する時刻（0-23、`RECORDING_NIGHT_ONLY=true` のときのみ有効） |
 | `RECORDING_END_HOUR` | `6` | 録画を終了する時刻（0-23）。開始時刻より小さい場合は日をまたぐ（既定は18時〜翌6時） |
 | `RECORDING_HOURS_TZ` | `JST-9` | 開始・終了時刻を判定するタイムゾーン（POSIX 形式）。録画ファイル名は UTC のまま |
+
+### 流星の検出
+
+| 変数 | 既定値 | 説明 |
+|---|---|---|
+| `METEOR_DETECT` | `true` | `false` にすると流星の検出を行わない |
+| `METEOR_START_HOUR` | `18` | 検出を始める時刻（0-23、日本時間） |
+| `METEOR_END_HOUR` | `6` | 検出を終える時刻（0-23）。開始時刻より小さい場合は日をまたぐ（既定は18時〜翌6時） |
+| `METEOR_MIN_LENGTH` | `30` | 流星とみなす線の最短の長さ（ピクセル）。長くすると飛行機などの誤検出は減るが、短い流星を見落とす |
+| `METEOR_RETENTION_DAYS` | `30` | 検出結果の保持期間（日）。超えたファイルは `cleanup` が削除する |
+
+detector は streamer とは別にカメラへ RTSP で接続するため、1台のカメラに同時に 3 本の接続（ライブ配信・録画・検出）が張られます。
+また、映像を 1 フレームずつデコードして解析するので、カメラの台数が多いと CPU を多く使います。
 
 ### 今すぐ保存
 
@@ -153,7 +170,7 @@ Cloudflare のアカウント・ドメイン・ルーターのポート開放な
 |---|---|---|
 | カメラの切断 | ライブ配信中だったカメラが 30 秒以上映像を受信できなくなったとき | ステータス用 |
 | カメラの復旧 | 切断を通知したカメラが再び映像を受信できたとき | ステータス用 |
-| 公開 URL の発行 | `cloudflared`（`COMPOSE_PROFILES=tunnel`）が URL を発行・変更したとき。ライブ画面とアーカイブのリンクを投稿 | リンク用 |
+| 公開 URL の発行 | `cloudflared`（`COMPOSE_PROFILES=tunnel`）が URL を発行・変更したとき。ライブ画面の URL と、その QR コード画像（スマートフォンで読み取れる）を投稿 | リンク用 |
 
 1. Discord で通知したいサーバーのチャンネルを開き、**チャンネルの編集 → 連携サービス → ウェブフック → 新しいウェブフック**
    を作成して **ウェブフック URL をコピー** する（チャンネルの管理権限が必要）
@@ -188,6 +205,7 @@ Cloudflare のアカウント・ドメイン・ルーターのポート開放な
 |---|---|
 | `GET /api/status` | 各カメラの `id`・表示名 `label`・有効か `enabled`（RTSP URL が設定されているか）・ライブ状態 `live`（HLS の更新が 30 秒以内なら `true`）と、未設定カメラを画面から外すか `hide_disabled` |
 | `GET /api/recordings` | 録画一覧（新しい順・最大300件）。各要素は `camera_id`・`timestamp`（開始時刻 UTC `YYYYMMDDHHMMSS`）・`end_epoch`（終了時刻の目安）・`video`（ファイル名）。録画中の最新ファイルは含まない |
+| `GET /api/meteors` | 流星の検出結果（新しい順・最大500件）。各要素は `camera_id`・`epoch`（検出時刻）・`image`（比較明合成画像のファイル名）・`video`（動画のファイル名。H.264 への変換中は `null`）。ファイルは `/meteors/camN/` で配信 |
 | `POST /api/recordings/save?camera_id=camN` | 直近 `SAVE_CLIP_SECONDS` 秒のクリップを mp4 で返す（サーバーには保存しない）。`seconds` で短くすることも可能（最短5秒） |
 | `POST /api/cameras/camN/reconnect` | そのカメラへの接続をやり直すよう streamer に依頼する（ライブ画面の「再接続」ボタン）。共有ボリューム `control` に依頼ファイルを置き、streamer が次の監視ループ（10 秒ごと）で ffmpeg を起動し直す。閲覧者ごとに 2 回/分まで |
 | `GET /healthz` | 死活監視用（`ok` を返す） |
@@ -221,8 +239,12 @@ Cloudflare のアカウント・ドメイン・ルーターのポート開放な
 FastAPI 単体はローカルでも起動できます（ページは `web/` から配信されます）。
 
 ```bash
-HLS_ROOT=./tmp/hls RECORDINGS_ROOT=./tmp/recordings uv run uvicorn main:app --reload
+HLS_ROOT=./tmp/hls RECORDINGS_ROOT=./tmp/recordings METEORS_ROOT=./tmp/meteors CONTROL_ROOT=./tmp/control uv run uvicorn main:app --reload
 # http://localhost:8000/ , http://localhost:8000/api/status
 ```
 
 ※ 映像は streamer が書き出す HLS が必要なため、プレイヤーを含めた動作確認は `docker compose up -d --build` で行ってください。
+
+## 謝辞
+kin-hasegawa 氏の meteor-detect を一部改変して使用させていただいております。
+https://github.com/kin-hasegawa/meteor-detect

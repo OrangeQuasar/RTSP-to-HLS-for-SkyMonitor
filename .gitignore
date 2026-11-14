@@ -4,8 +4,25 @@ __pycache__/
 *.pyc
 .ruff_cache/
 
-# ローカル開発で HLS_ROOT / RECORDINGS_ROOT に使う作業用ディレクトリ（README 参照）
+# ローカル開発で HLS_ROOT / RECORDINGS_ROOT / METEORS_ROOT / CONTROL_ROOT に使う作業用ディレクトリ（README 参照）
 tmp/
+
+# 録画・流星の検出結果などの映像データ（大きく、リポジトリに入れるものではない）
+# docker compose cp api:/recordings ./recordings-backup のように取り出したもの
+/*-backup/
+# docker-compose.yml のボリュームをフォルダ（./recordings など）に変えた場合の保存先
+/hls/
+/recordings/
+/meteors/
+/control/
+
+# meteor-detect を単体で動かしたときの出力（既定ではカレントディレクトリに書き出される）
+# 検出画像 yyyymmddhhmmss.jpg・sky-*.jpg、検出動画 movie-*.mp4、atomutil.py の movie.mp4、ログ
+meteor-detect/*.jpg
+meteor-detect/*.mp4
+meteor-detect/*.log
+# ATOM Cam からダウンロードした録画（yyyymmdd/hh/mm.mp4）
+meteor-detect/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]/
 
 # 認証情報（RTSP URL のパスワード・Discord Webhook URL）を含むため
 .env

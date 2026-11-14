@@ -12,7 +12,31 @@
     }
 
     header h1 { margin: 0.3em 0 0.1em; }
-    header .caption { margin: 0 0 0.2em; }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin: 0.5em 0 0;
+      border-bottom: 1px solid rgba(128, 128, 128, 0.4);
+    }
+    .tab {
+      margin-bottom: -1px;
+      padding: 4px 12px;
+      border: 1px solid transparent;
+      border-bottom: none;
+      border-radius: 4px 4px 0 0;
+      background: none;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+    .tab:hover { background: rgba(128, 128, 128, 0.12); }
+    .tab[aria-selected="true"] {
+      border-color: rgba(128, 128, 128, 0.4);
+      background: Canvas;
+      font-weight: bold;
+    }
+    .view-caption { margin: 0.5em 0 0; }
 
     #status {
       margin: 0.5em 0;
@@ -27,6 +51,7 @@
       font-size: 1.2em;
       border-bottom: 1px solid rgba(128, 128, 128, 0.4);
     }
+    .day-count { margin-left: 0.5em; font-size: 0.8em; font-weight: normal; }
 
     .hour-heading {
       cursor: pointer;
@@ -64,7 +89,9 @@
       background: #000;
       cursor: pointer;
     }
-    .media video {
+    .media.no-video { cursor: default; }
+    .media video,
+    .media img {
       width: 100%;
       height: 100%;
       object-fit: contain;
@@ -91,7 +118,7 @@
     .cam-label { font-weight: bold; }
     .time-range { font-variant-numeric: tabular-nums; }
 
-    #empty { margin: 1em 0; }
+    .empty { margin: 1em 0; }
 
     footer { padding-bottom: 0.75em; }
   </style>
@@ -99,16 +126,29 @@
 <body>
   <header>
     <h1>アーカイブ</h1>
-    <p class="caption">各カメラで録画された映像一覧です（新しい順）。各映像は定期的に保存されます。最新の映像のアーカイブには少し時間がかかる場合があります。</p>
     <a href="/">ライブ映像に戻る</a>
   </header>
 
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-view="recordings">録画</button>
+    <button class="tab" role="tab" data-view="meteors">流星</button>
+  </nav>
+
   <div id="status">読み込み中…</div>
 
-  <div id="list"></div>
-  <p id="empty" hidden>まだ録画がありません。</p>
+  <section id="recordings-view" role="tabpanel">
+    <p class="view-caption">各カメラで録画された映像一覧です（新しい順）。各映像は定期的に保存されます。最新の映像のアーカイブには少し時間がかかる場合があります。</p>
+    <div id="recordings-list"></div>
+    <p id="recordings-empty" class="empty" hidden>まだ録画がありません。</p>
+  </section>
 
-  <footer>一定期間を過ぎた録画は自動的に削除されます。</footer>
+  <section id="meteors-view" role="tabpanel" hidden>
+    <p class="view-caption">夜間に自動で検出した流星の一覧です（日ごと・新しい順）。画像は検出時の比較明合成で、クリックすると検出時の動画を再生します。飛行機や人工衛星などを誤って検出していることもあります。</p>
+    <div id="meteors-list"></div>
+    <p id="meteors-empty" class="empty" hidden>まだ流星は検出されていません。</p>
+  </section>
+
+  <footer>一定期間を過ぎた録画・流星の検出結果は自動的に削除されます。</footer>
 
   <script>
     // ===== 設定値 =====
@@ -134,25 +174,56 @@
 
     // ===== 起動 =====
     async function init() {
+      setupTabs();
       const banner = document.getElementById("status");
       try {
-        const [statusRes, recRes] = await Promise.all([
-          fetch("/api/status"),
-          fetch("/api/recordings"),
+        const { cameras } = await fetchJson("/api/status");
+        const labelMap = Object.fromEntries(cameras.map((c) => [c.id, c.label]));
+        // 片方の取得に失敗しても、もう片方は表示する
+        await Promise.allSettled([
+          loadList("/api/recordings", "events", "recordings", (items, list) => renderRecordings(items, labelMap, list)),
+          loadList("/api/meteors", "meteors", "meteors", (items, list) => renderMeteors(items, labelMap, list)),
         ]);
-        const { cameras } = await statusRes.json();
-        const { events: recordings } = await recRes.json();
-
-        if (recordings.length === 0) {
-          document.getElementById("empty").hidden = false;
-        } else {
-          const labelMap = Object.fromEntries(cameras.map((c) => [c.id, c.label]));
-          renderRecordings(recordings, labelMap, document.getElementById("list"));
-        }
       } finally {
         // 取得に失敗したときも「読み込み中…」は消す（エラーの内容はブラウザのコンソールに出る）
         banner.hidden = true;
       }
+    }
+
+    async function fetchJson(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${url} failed`);
+      return res.json();
+    }
+
+    // url の key の配列を取得し、空なら「まだ〜ありません」を、あれば render で #<name>-list に表示する
+    async function loadList(url, key, name, render) {
+      const items = (await fetchJson(url))[key];
+      if (items.length === 0) {
+        document.getElementById(`${name}-empty`).hidden = false;
+      } else {
+        render(items, document.getElementById(`${name}-list`));
+      }
+    }
+
+    // ===== タブ（録画・流星） =====
+    // 流星のタブは URL の #meteors で表し、リンクやページの読み直しでも同じタブを開く
+    function setupTabs() {
+      const tabs = document.querySelectorAll(".tab");
+      function show(view) {
+        for (const tab of tabs) {
+          const selected = tab.dataset.view === view;
+          tab.setAttribute("aria-selected", selected);
+          document.getElementById(`${tab.dataset.view}-view`).hidden = !selected;
+        }
+      }
+      for (const tab of tabs) {
+        tab.addEventListener("click", () => {
+          show(tab.dataset.view);
+          history.replaceState(null, "", tab.dataset.view === "meteors" ? "#meteors" : location.pathname);
+        });
+      }
+      show(location.hash === "#meteors" ? "meteors" : "recordings");
     }
 
     // ===== 時刻の扱い =====
@@ -171,6 +242,10 @@
     // { year, month, day, hour, minute, second, weekday } の形で返す
     function toJstParts(date) {
       return Object.fromEntries(JST_FORMAT.formatToParts(date).map((p) => [p.type, p.value]));
+    }
+
+    function dayKey(parts) {
+      return `${parts.year}-${parts.month}-${parts.day}`;
     }
 
     function dateLabel(parts) {
@@ -193,6 +268,11 @@
       return groups;
     }
 
+    function camLabel(cameraId, labelMap) {
+      return el("span", { className: "cam-label", textContent: labelMap[cameraId] || cameraId });
+    }
+
+    // --- 録画 ---
     // 日付ごと → 時間帯ごとにまとめて表示する（日本時間で区切る）
     function renderRecordings(recordings, labelMap, container) {
       for (const recording of recordings) {
@@ -203,9 +283,8 @@
         recording.startParts = toJstParts(recording.start);
       }
 
-      const days = groupBy(recordings, (r) => `${r.startParts.year}-${r.startParts.month}-${r.startParts.day}`);
       let isFirstHourGroup = true;
-      for (const dayItems of days.values()) {
+      for (const dayItems of groupBy(recordings, (r) => dayKey(r.startParts)).values()) {
         const section = el("section", {},
           el("h2", { className: "day-heading", textContent: dateLabel(dayItems[0].startParts) }),
         );
@@ -213,7 +292,7 @@
         for (const hourItems of groupBy(dayItems, (r) => r.startParts.hour).values()) {
           const details = el("details", { className: "hour-group" },
             el("summary", { className: "hour-heading", textContent: `${hourItems[0].startParts.hour}時台` }),
-            el("div", { className: "grid" }, ...hourItems.map((r) => createCard(r, labelMap))),
+            el("div", { className: "grid" }, ...hourItems.map((r) => createRecordingCard(r, labelMap))),
           );
           // 直近の時間帯だけ最初から開いておく
           details.open = isFirstHourGroup;
@@ -225,31 +304,70 @@
       }
     }
 
-    function createCard(recording, labelMap) {
+    function createRecordingCard(recording, labelMap) {
       const media = el("div", { className: "media" },
         el("div", { className: "play-badge", textContent: "▶" }),
       );
-      media.addEventListener("click", () => playVideo(media, recording), { once: true });
+      playOnClick(media, `/recordings/${recording.camera_id}/${recording.video}`);
 
       const start = timeLabel(recording.startParts);
       const end = timeLabel(toJstParts(recording.end));
       return el("div", { className: "card" },
         media,
         el("div", { className: "meta" },
-          el("span", { className: "cam-label", textContent: labelMap[recording.camera_id] || recording.camera_id }),
+          camLabel(recording.camera_id, labelMap),
           el("span", { className: "time-range", textContent: `${start} 〜 ${end}` }),
         ),
       );
     }
 
+    // --- 流星 ---
+    // 日付ごとにまとめ、見出しに件数を出す（日本時間で区切る）
+    function renderMeteors(meteors, labelMap, container) {
+      for (const meteor of meteors) {
+        meteor.parts = toJstParts(new Date(meteor.epoch * 1000));
+      }
+
+      for (const dayItems of groupBy(meteors, (m) => dayKey(m.parts)).values()) {
+        container.append(el("section", {},
+          el("h2", { className: "day-heading" },
+            dateLabel(dayItems[0].parts),
+            el("span", { className: "day-count", textContent: `${dayItems.length}件` }),
+          ),
+          el("div", { className: "grid" }, ...dayItems.map((m) => createMeteorCard(m, labelMap))),
+        ));
+      }
+    }
+
+    // 比較明合成画像を出し、動画があればクリックで再生する
+    function createMeteorCard(meteor, labelMap) {
+      const base = `/meteors/${meteor.camera_id}/`;
+      const media = el("div", { className: "media" },
+        el("img", { src: base + meteor.image, alt: "流星の比較明合成画像", loading: "lazy" }),
+      );
+      if (meteor.video) {
+        media.append(el("div", { className: "play-badge", textContent: "▶" }));
+        playOnClick(media, base + meteor.video, base + meteor.image);
+      } else {
+        // 動画は H.264 への変換が終わってから現れる
+        media.classList.add("no-video");
+      }
+
+      return el("div", { className: "card" },
+        media,
+        el("div", { className: "meta" },
+          camLabel(meteor.camera_id, labelMap),
+          el("span", { className: "time-range", textContent: timeLabel(meteor.parts) }),
+        ),
+      );
+    }
+
     // ===== 映像の再生 =====
-    // 「▶」の表示を、その録画の映像に置き換えて再生する
-    function playVideo(media, recording) {
-      media.replaceChildren(el("video", {
-        src: `/recordings/${recording.camera_id}/${recording.video}`,
-        controls: true,
-        autoplay: true,
-      }));
+    // クリックされたら、media の中身をその映像に置き換えて再生する
+    function playOnClick(media, src, poster = "") {
+      media.addEventListener("click", () => {
+        media.replaceChildren(el("video", { src, poster, controls: true, autoplay: true }));
+      }, { once: true });
     }
 
     init();

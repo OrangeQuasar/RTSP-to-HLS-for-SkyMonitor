@@ -1,18 +1,22 @@
 """SkyMonitor の出来事を Discord に通知する
 
 - カメラの接続が切れたとき・復旧したとき（api の /api/status を定期的に確認）
-- cloudflared（Quick Tunnel）が公開 URL を発行したとき（cloudflared のメトリクスを確認）
+- cloudflared（Quick Tunnel）が公開 URL を発行したとき（cloudflared のメトリクスを確認）。
+  スマートフォンで読み取れるよう、ライブ映像の URL の QR コード画像も添付する
 
 通知の種類ごとに送信先の Webhook を分けられる。個別の Webhook が未設定なら DISCORD_WEBHOOK_URL に送り、
 それも未設定なら送信せずログに出力するだけにする。
 """
 
+import io
 import json
 import os
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
+
+import segno
 
 # 共通の送信先（下の2つが未設定のときに使う）
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
@@ -37,28 +41,63 @@ def log(message: str) -> None:
     print(f"[notifier] {message}", flush=True)
 
 
-def request(url: str, data: dict | None = None) -> bytes:
-    body = json.dumps(data).encode() if data is not None else None
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"},
-    )
+def request(
+    url: str, data: dict | None = None, files: dict[str, bytes] | None = None
+) -> bytes:
+    """GET（data なし）か、JSON を POST する。files があれば画像を添付した multipart で送る"""
+    headers = {"User-Agent": USER_AGENT}
+    if files:
+        body, headers["Content-Type"] = multipart(data or {}, files)
+    elif data is not None:
+        body = json.dumps(data).encode()
+        headers["Content-Type"] = "application/json"
+    else:
+        body = None
+    req = urllib.request.Request(url, data=body, headers=headers)
     with urllib.request.urlopen(req, timeout=10) as res:
         return res.read()
 
 
-def send(webhook_url: str, message: str) -> bool:
-    """Discord に送信する。送信できた（または送信先が未設定）なら True"""
+def multipart(payload: dict, files: dict[str, bytes]) -> tuple[bytes, str]:
+    """Discord の Webhook にファイルを添付するための multipart/form-data を作る
+
+    メッセージ本文は payload_json に、ファイルは files[0], files[1], ... に入れる
+    """
+    boundary = f"skymonitor-{time.time_ns()}"
+    parts = [
+        f'--{boundary}\r\nContent-Disposition: form-data; name="payload_json"\r\n'
+        "Content-Type: application/json\r\n\r\n".encode()
+        + json.dumps(payload).encode()
+    ]
+    for i, (filename, content) in enumerate(files.items()):
+        parts.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="files[{i}]"; '
+            f'filename="{filename}"\r\nContent-Type: image/png\r\n\r\n'.encode()
+            + content
+        )
+    body = b"\r\n".join(parts) + f"\r\n--{boundary}--\r\n".encode()
+    return body, f"multipart/form-data; boundary={boundary}"
+
+
+def send(webhook_url: str, message: str, files: dict[str, bytes] | None = None) -> bool:
+    """Discord に送信する（files: ファイル名 → PNG 画像）。送信できた（または送信先が未設定）なら True"""
     log(message.replace("\n", " | "))
     if not webhook_url:
         return True
     try:
-        request(webhook_url, {"content": message})
+        request(webhook_url, {"content": message}, files)
     except (urllib.error.URLError, OSError) as e:
         log(f"failed to send to Discord: {e}")
         return False
     return True
+
+
+def qr_png(text: str) -> bytes:
+    """text を読み取れる QR コードの PNG 画像を作る"""
+    buf = io.BytesIO()
+    # scale: 1マスの大きさ（ピクセル）、border: 周りの余白（マス）
+    segno.make(text, error="m").save(buf, kind="png", scale=8, border=4)
+    return buf.getvalue()
 
 
 def now_label() -> str:
@@ -119,13 +158,14 @@ class TunnelMonitor:
     def check(self) -> None:
         url = self._current_url()
         if url and url != self.notified_url:
+            live_url = f"{url}/"
             message = (
-                "📡 SkyMonitor の公開 URL が発行されました\n"
-                f"ライブ映像: {url}/\n"
-                f"アーカイブ: {url}/gallery.html"
+                "新しい SkyMonitor の公開 URL が発行されました！\n"
+                f"ライブ映像: {live_url}\n"
+#                f"アーカイブ: {url}/gallery.html"
             )
             # 送信に失敗した場合は次の周期で再送する
-            if send(DISCORD_LINK_WEBHOOK_URL, message):
+            if send(DISCORD_LINK_WEBHOOK_URL, message, {"skymonitor-qr.png": qr_png(live_url)}):
                 self.notified_url = url
 
     @staticmethod

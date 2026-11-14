@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -16,6 +16,8 @@ from starlette.background import BackgroundTask
 
 HLS_ROOT = Path(os.environ.get("HLS_ROOT", "/hls"))
 RECORDINGS_ROOT = Path(os.environ.get("RECORDINGS_ROOT", "/recordings"))
+# detector（流星検出）が検出結果を書き出すディレクトリ
+METEORS_ROOT = Path(os.environ.get("METEORS_ROOT", "/meteors"))
 # 再接続の依頼を streamer に渡すためのディレクトリ（streamer と共有するボリューム）
 CONTROL_ROOT = Path(os.environ.get("CONTROL_ROOT", "/control"))
 WEB_ROOT = Path(os.environ.get("WEB_ROOT", Path(__file__).parent / "web"))
@@ -52,6 +54,11 @@ CAMERA_IDS = [f"cam{i}" for i in range(1, 5)]
 
 # streamer が書き出す常時録画ファイル名（streamer/stream.sh の -strftime 出力に対応）
 RECORDING_RE = re.compile(r"^(\d{8})_(\d{6})\.mp4$")
+
+# detector が書き出す流星の比較明合成画像（detector/run.py。時刻は日本時間）
+METEOR_IMAGE_RE = re.compile(r"^(\d{14})\.jpg$")
+METEORS_LIMIT = 500
+JST = timezone(timedelta(hours=9), "JST")
 
 app = FastAPI(title="SkyMonitor", docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -233,6 +240,37 @@ def recordings() -> dict:
     return {"events": events[:RECORDINGS_LIMIT]}
 
 
+def list_meteors(camera_id: str) -> list[dict]:
+    meteor_dir = METEORS_ROOT / camera_id
+    if not meteor_dir.is_dir():
+        return []
+    meteors = []
+    for entry in meteor_dir.iterdir():
+        m = METEOR_IMAGE_RE.match(entry.name)
+        if not m:
+            continue
+        ts = m.group(1)
+        detected = datetime.strptime(ts, "%Y%m%d%H%M%S").replace(tzinfo=JST)
+        # 動画は H.264 への変換が終わってから現れるので、まだなければ画像だけを返す
+        movie = f"movie-{ts}.mp4"
+        meteors.append(
+            {
+                "camera_id": camera_id,
+                "epoch": detected.timestamp(),
+                "image": entry.name,
+                "video": movie if (meteor_dir / movie).exists() else None,
+            }
+        )
+    return meteors
+
+
+@app.get("/api/meteors")
+def meteors() -> dict:
+    events = [e for camera_id in CAMERA_IDS for e in list_meteors(camera_id)]
+    events.sort(key=lambda e: e["epoch"], reverse=True)
+    return {"meteors": events[:METEORS_LIMIT]}
+
+
 @app.post("/api/recordings/save")
 def save_clip(
     request: Request, camera_id: str, seconds: float = SAVE_CLIP_SECONDS
@@ -294,4 +332,5 @@ def healthz() -> str:
 # 静的ファイルの配信（API のルートより後に登録すること。"/" は他のパスに一致しなかったものを受ける）
 app.mount("/hls", StaticFiles(directory=HLS_ROOT, check_dir=False), name="hls")
 app.mount("/recordings", StaticFiles(directory=RECORDINGS_ROOT, check_dir=False), name="recordings")
+app.mount("/meteors", StaticFiles(directory=METEORS_ROOT, check_dir=False), name="meteors")
 app.mount("/", StaticFiles(directory=WEB_ROOT, html=True), name="web")

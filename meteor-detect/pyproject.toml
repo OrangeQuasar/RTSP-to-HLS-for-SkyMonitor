@@ -1,0 +1,15 @@
+[project]
+name = "meteor-detect"
+version = "0.1.0"
+description = "Automatic meteor detection from ATOM Cam movie files (MP4) and RTSP/YouTube streams"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "imutils",
+    # YouTube入力用 (pafyの後継)
+    "yt-dlp",
+    # telnetlibはPython 3.13で標準ライブラリから削除されたため
+    "standard-telnetlib; python_version >= '3.13'",
+]

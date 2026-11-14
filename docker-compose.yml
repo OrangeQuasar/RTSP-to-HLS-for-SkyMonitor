@@ -16,6 +16,23 @@ x-streamer-env: &streamer-env
   RECORDING_END_HOUR: ${RECORDING_END_HOUR:-6}
   RECORDING_HOURS_TZ: ${RECORDING_HOURS_TZ:-JST-9}
 
+# 4台の detector（流星検出）で共通の設定。meteor-detect の atomcam.py を夜間だけ動かす
+# RTSP_URL_N が空のカメラ、または METEOR_DETECT=false のときは待機だけする
+x-detector: &detector
+  build:
+    context: ./detector
+    additional_contexts:
+      meteor-detect: ./meteor-detect
+  restart: unless-stopped
+  volumes:
+    - meteors:/meteors
+
+x-detector-env: &detector-env
+  METEOR_DETECT: ${METEOR_DETECT:-true}
+  METEOR_START_HOUR: ${METEOR_START_HOUR:-18}
+  METEOR_END_HOUR: ${METEOR_END_HOUR:-6}
+  METEOR_MIN_LENGTH: ${METEOR_MIN_LENGTH:-30}
+
 services:
   streamer1:
     <<: *streamer
@@ -49,15 +66,45 @@ services:
       RTSP_URL: ${RTSP_URL_4:-}
       VIDEO_CODEC: ${VIDEO_CODEC_4:-copy}
 
-  # 保持期間を過ぎた録画ファイルを定期的に削除する
+  detector1:
+    <<: *detector
+    environment:
+      <<: *detector-env
+      CAMERA_NAME: cam1
+      RTSP_URL: ${RTSP_URL_1:-}
+
+  detector2:
+    <<: *detector
+    environment:
+      <<: *detector-env
+      CAMERA_NAME: cam2
+      RTSP_URL: ${RTSP_URL_2:-}
+
+  detector3:
+    <<: *detector
+    environment:
+      <<: *detector-env
+      CAMERA_NAME: cam3
+      RTSP_URL: ${RTSP_URL_3:-}
+
+  detector4:
+    <<: *detector
+    environment:
+      <<: *detector-env
+      CAMERA_NAME: cam4
+      RTSP_URL: ${RTSP_URL_4:-}
+
+  # 保持期間を過ぎた録画ファイル・流星の検出結果を定期的に削除する
   cleanup:
     build: ./cleanup
     restart: unless-stopped
     environment:
       RECORDING_RETENTION_DAYS: ${RECORDING_RETENTION_DAYS:-3}
+      METEOR_RETENTION_DAYS: ${METEOR_RETENTION_DAYS:-30}
       CLEANUP_INTERVAL_SECONDS: ${CLEANUP_INTERVAL_SECONDS:-3600}
     volumes:
       - recordings:/recordings
+      - meteors:/meteors
 
   # ページ・HLS・録画・API をすべて配信する（FastAPI）
   api:
@@ -83,6 +130,7 @@ services:
       - ./web:/app/web:ro
       - hls:/hls:ro
       - recordings:/recordings:ro
+      - meteors:/meteors:ro
       # ライブ画面の「再接続」ボタンの依頼を streamer に渡す
       - control:/control
 
@@ -116,3 +164,4 @@ volumes:
   hls:
   recordings:
   control:
+  meteors:
